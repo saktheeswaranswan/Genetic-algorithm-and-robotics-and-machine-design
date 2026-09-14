@@ -1,0 +1,2001 @@
+/* ================================================================
+   GENETIC ALGORITHM
+   GLOBAL MINIMUM + GLOBAL MAXIMUM
+   APDE / PROCESSING FOR ANDROID
+
+   OBJECTIVE:
+       f(x) = x(10-x)
+
+   DOMAIN:
+       0 <= x <= 10
+
+   THEORETICAL:
+       GLOBAL MINIMUM = 0
+       at x = 0 or x = 10
+
+       GLOBAL MAXIMUM = 25
+       at x = 5
+
+   TWO INDEPENDENT GENETIC ALGORITHMS:
+
+       GA 1 -> MINIMIZATION
+       GA 2 -> MAXIMIZATION
+
+   TOTAL:
+       1000 ITERATIONS
+================================================================ */
+
+
+// ================================================================
+// GA PARAMETERS
+// ================================================================
+
+final int POP_SIZE = 32;
+final int MAX_ITERATIONS = 1000;
+
+final float X_MIN = 0.0;
+final float X_MAX = 10.0;
+
+final float CROSSOVER_RATE = 0.85;
+final float MUTATION_RATE = 0.20;
+final float MUTATION_SIGMA = 0.45;
+
+final int TOURNAMENT_SIZE = 3;
+
+
+// ================================================================
+// MINIMUM GA
+// ================================================================
+
+float[] minPopulation = new float[POP_SIZE];
+float[] minFitness = new float[POP_SIZE];
+float[] minNextPopulation = new float[POP_SIZE];
+
+
+// ================================================================
+// MAXIMUM GA
+// ================================================================
+
+float[] maxPopulation = new float[POP_SIZE];
+float[] maxFitness = new float[POP_SIZE];
+float[] maxNextPopulation = new float[POP_SIZE];
+
+
+// ================================================================
+// GLOBAL MINIMUM
+// ================================================================
+
+float globalMinX;
+float globalMinValue;
+int globalMinIteration;
+
+
+// ================================================================
+// GLOBAL MAXIMUM
+// ================================================================
+
+float globalMaxX;
+float globalMaxValue;
+int globalMaxIteration;
+
+
+// ================================================================
+// ITERATION CONTROL
+// ================================================================
+
+int iteration = 0;
+
+boolean running = true;
+boolean finished = false;
+
+int iterationDelay = 35;
+int lastIterationTime;
+
+
+// ================================================================
+// HISTORY
+// ================================================================
+
+float[] minHistory = new float[MAX_ITERATIONS + 1];
+float[] maxHistory = new float[MAX_ITERATIONS + 1];
+
+
+// ================================================================
+// GRAPH VARIABLES
+// ================================================================
+
+float graphLeft;
+float graphRight;
+float graphTop;
+float graphBottom;
+
+float convergenceTop;
+float convergenceBottom;
+
+
+// ================================================================
+// SETTINGS
+// ================================================================
+
+void settings() {
+
+  // IMPORTANT FOR APDE ANDROID
+  fullScreen(P3D);
+}
+
+
+// ================================================================
+// SETUP
+// ================================================================
+
+void setup() {
+
+  // Android landscape
+  orientation(LANDSCAPE);
+
+  // Avoid excessive smoothing problems on some devices
+  smooth();
+
+  textAlign(LEFT, TOP);
+
+  calculateLayout();
+
+  resetGA();
+}
+
+
+// ================================================================
+// RESPONSIVE LAYOUT
+// ================================================================
+
+void calculateLayout() {
+
+  graphLeft = width * 0.055;
+  graphRight = width * 0.965;
+
+  graphTop = height * 0.145;
+  graphBottom = height * 0.525;
+
+  convergenceTop = height * 0.665;
+  convergenceBottom = height * 0.855;
+}
+
+
+// ================================================================
+// DRAW
+// ================================================================
+
+void draw() {
+
+  background(7, 13, 23);
+
+  // --------------------------------------------------------------
+  // AUTOMATIC EVOLUTION
+  // --------------------------------------------------------------
+
+  if (running && !finished) {
+
+    if (millis() - lastIterationTime >= iterationDelay) {
+
+      evolveOneIteration();
+
+      lastIterationTime = millis();
+    }
+  }
+
+
+  // --------------------------------------------------------------
+  // DRAW UI
+  // --------------------------------------------------------------
+
+  drawHeader();
+
+  drawFunctionGraph();
+
+  drawConvergenceGraph();
+
+  drawStatus();
+
+  drawButtons();
+}
+
+
+// ================================================================
+// OBJECTIVE FUNCTION
+// ================================================================
+
+float objective(float x) {
+
+  return x * (10.0 - x);
+}
+
+
+// ================================================================
+// RESET
+// ================================================================
+
+void resetGA() {
+
+  iteration = 0;
+
+  running = true;
+  finished = false;
+
+
+  // --------------------------------------------------------------
+  // RESET GLOBAL MINIMUM
+  // --------------------------------------------------------------
+
+  globalMinX = 0;
+
+  globalMinValue = Float.MAX_VALUE;
+
+  globalMinIteration = 0;
+
+
+  // --------------------------------------------------------------
+  // RESET GLOBAL MAXIMUM
+  // --------------------------------------------------------------
+
+  globalMaxX = 0;
+
+  globalMaxValue = -Float.MAX_VALUE;
+
+  globalMaxIteration = 0;
+
+
+  // --------------------------------------------------------------
+  // RESET HISTORY
+  // --------------------------------------------------------------
+
+  for (int i = 0; i <= MAX_ITERATIONS; i++) {
+
+    minHistory[i] = Float.MAX_VALUE;
+
+    maxHistory[i] = -Float.MAX_VALUE;
+  }
+
+
+  // --------------------------------------------------------------
+  // CREATE POPULATIONS
+  // --------------------------------------------------------------
+
+  initializeMinimumPopulation();
+
+  initializeMaximumPopulation();
+
+
+  // --------------------------------------------------------------
+  // EVALUATE INITIAL POPULATIONS
+  // --------------------------------------------------------------
+
+  evaluateMinimumPopulation();
+
+  evaluateMaximumPopulation();
+
+
+  // --------------------------------------------------------------
+  // SAVE INITIAL VALUES
+  // --------------------------------------------------------------
+
+  minHistory[0] = globalMinValue;
+
+  maxHistory[0] = globalMaxValue;
+
+
+  lastIterationTime = millis();
+}
+
+
+// ================================================================
+// INITIALIZE MINIMUM POPULATION
+// ================================================================
+
+void initializeMinimumPopulation() {
+
+  for (int i = 0; i < POP_SIZE; i++) {
+
+    minPopulation[i] =
+      random(X_MIN, X_MAX);
+
+    minFitness[i] =
+      objective(minPopulation[i]);
+  }
+}
+
+
+// ================================================================
+// INITIALIZE MAXIMUM POPULATION
+// ================================================================
+
+void initializeMaximumPopulation() {
+
+  for (int i = 0; i < POP_SIZE; i++) {
+
+    maxPopulation[i] =
+      random(X_MIN, X_MAX);
+
+    maxFitness[i] =
+      objective(maxPopulation[i]);
+  }
+}
+
+
+// ================================================================
+// EVALUATE MINIMUM
+// ================================================================
+
+void evaluateMinimumPopulation() {
+
+  for (int i = 0; i < POP_SIZE; i++) {
+
+    minFitness[i] =
+      objective(minPopulation[i]);
+
+    if (minFitness[i] < globalMinValue) {
+
+      globalMinValue =
+        minFitness[i];
+
+      globalMinX =
+        minPopulation[i];
+
+      globalMinIteration =
+        iteration;
+    }
+  }
+}
+
+
+// ================================================================
+// EVALUATE MAXIMUM
+// ================================================================
+
+void evaluateMaximumPopulation() {
+
+  for (int i = 0; i < POP_SIZE; i++) {
+
+    maxFitness[i] =
+      objective(maxPopulation[i]);
+
+    if (maxFitness[i] > globalMaxValue) {
+
+      globalMaxValue =
+        maxFitness[i];
+
+      globalMaxX =
+        maxPopulation[i];
+
+      globalMaxIteration =
+        iteration;
+    }
+  }
+}
+
+
+// ================================================================
+// ONE ITERATION
+// ================================================================
+
+void evolveOneIteration() {
+
+  if (iteration >= MAX_ITERATIONS) {
+
+    finished = true;
+    running = false;
+
+    return;
+  }
+
+
+  // --------------------------------------------------------------
+  // MINIMIZATION
+  // --------------------------------------------------------------
+
+  evolveMinimumPopulation();
+
+
+  // --------------------------------------------------------------
+  // MAXIMIZATION
+  // --------------------------------------------------------------
+
+  evolveMaximumPopulation();
+
+
+  // --------------------------------------------------------------
+  // ADVANCE
+  // --------------------------------------------------------------
+
+  iteration++;
+
+
+  // --------------------------------------------------------------
+  // EVALUATE
+  // --------------------------------------------------------------
+
+  evaluateMinimumPopulation();
+
+  evaluateMaximumPopulation();
+
+
+  // --------------------------------------------------------------
+  // SAVE HISTORY
+  // --------------------------------------------------------------
+
+  minHistory[iteration] =
+    globalMinValue;
+
+  maxHistory[iteration] =
+    globalMaxValue;
+
+
+  // --------------------------------------------------------------
+  // FINISHED
+  // --------------------------------------------------------------
+
+  if (iteration >= MAX_ITERATIONS) {
+
+    finished = true;
+    running = false;
+  }
+}
+
+
+// ================================================================
+// EVOLVE MINIMUM POPULATION
+// ================================================================
+
+void evolveMinimumPopulation() {
+
+  // --------------------------------------------------------------
+  // ELITISM
+  // --------------------------------------------------------------
+
+  int eliteIndex =
+    findBestMinimumIndex();
+
+  minNextPopulation[0] =
+    minPopulation[eliteIndex];
+
+
+  // --------------------------------------------------------------
+  // CHILDREN
+  // --------------------------------------------------------------
+
+  for (int i = 1; i < POP_SIZE; i++) {
+
+    float parentA =
+      minimumTournamentSelection();
+
+    float parentB =
+      minimumTournamentSelection();
+
+    float child;
+
+
+    // ------------------------------------------------------------
+    // CROSSOVER
+    // ------------------------------------------------------------
+
+    if (random(1) < CROSSOVER_RATE) {
+
+      float alpha =
+        random(1);
+
+      child =
+        parentA +
+        alpha * (parentB - parentA);
+
+    } else {
+
+      if (random(1) < 0.5) {
+
+        child = parentA;
+
+      } else {
+
+        child = parentB;
+      }
+    }
+
+
+    // ------------------------------------------------------------
+    // MUTATION
+    // ------------------------------------------------------------
+
+    if (random(1) < MUTATION_RATE) {
+
+      child +=
+        randomGaussian() *
+        MUTATION_SIGMA;
+    }
+
+
+    // ------------------------------------------------------------
+    // BOUNDARY
+    // ------------------------------------------------------------
+
+    child =
+      constrain(
+        child,
+        X_MIN,
+        X_MAX
+      );
+
+
+    minNextPopulation[i] =
+      child;
+  }
+
+
+  // --------------------------------------------------------------
+  // REPLACE
+  // --------------------------------------------------------------
+
+  for (int i = 0; i < POP_SIZE; i++) {
+
+    minPopulation[i] =
+      minNextPopulation[i];
+  }
+}
+
+
+// ================================================================
+// EVOLVE MAXIMUM POPULATION
+// ================================================================
+
+void evolveMaximumPopulation() {
+
+  // --------------------------------------------------------------
+  // ELITISM
+  // --------------------------------------------------------------
+
+  int eliteIndex =
+    findBestMaximumIndex();
+
+  maxNextPopulation[0] =
+    maxPopulation[eliteIndex];
+
+
+  // --------------------------------------------------------------
+  // CHILDREN
+  // --------------------------------------------------------------
+
+  for (int i = 1; i < POP_SIZE; i++) {
+
+    float parentA =
+      maximumTournamentSelection();
+
+    float parentB =
+      maximumTournamentSelection();
+
+    float child;
+
+
+    // ------------------------------------------------------------
+    // CROSSOVER
+    // ------------------------------------------------------------
+
+    if (random(1) < CROSSOVER_RATE) {
+
+      float alpha =
+        random(1);
+
+      child =
+        parentA +
+        alpha * (parentB - parentA);
+
+    } else {
+
+      if (random(1) < 0.5) {
+
+        child = parentA;
+
+      } else {
+
+        child = parentB;
+      }
+    }
+
+
+    // ------------------------------------------------------------
+    // MUTATION
+    // ------------------------------------------------------------
+
+    if (random(1) < MUTATION_RATE) {
+
+      child +=
+        randomGaussian() *
+        MUTATION_SIGMA;
+    }
+
+
+    // ------------------------------------------------------------
+    // BOUNDARY
+    // ------------------------------------------------------------
+
+    child =
+      constrain(
+        child,
+        X_MIN,
+        X_MAX
+      );
+
+
+    maxNextPopulation[i] =
+      child;
+  }
+
+
+  // --------------------------------------------------------------
+  // REPLACE
+  // --------------------------------------------------------------
+
+  for (int i = 0; i < POP_SIZE; i++) {
+
+    maxPopulation[i] =
+      maxNextPopulation[i];
+  }
+}
+
+
+// ================================================================
+// MINIMUM TOURNAMENT
+// ================================================================
+
+float minimumTournamentSelection() {
+
+  int bestIndex =
+    int(random(POP_SIZE));
+
+
+  for (int i = 1;
+       i < TOURNAMENT_SIZE;
+       i++) {
+
+    int candidate =
+      int(random(POP_SIZE));
+
+
+    if (
+      minFitness[candidate] <
+      minFitness[bestIndex]
+      ) {
+
+      bestIndex =
+        candidate;
+    }
+  }
+
+
+  return minPopulation[bestIndex];
+}
+
+
+// ================================================================
+// MAXIMUM TOURNAMENT
+// ================================================================
+
+float maximumTournamentSelection() {
+
+  int bestIndex =
+    int(random(POP_SIZE));
+
+
+  for (int i = 1;
+       i < TOURNAMENT_SIZE;
+       i++) {
+
+    int candidate =
+      int(random(POP_SIZE));
+
+
+    if (
+      maxFitness[candidate] >
+      maxFitness[bestIndex]
+      ) {
+
+      bestIndex =
+        candidate;
+    }
+  }
+
+
+  return maxPopulation[bestIndex];
+}
+
+
+// ================================================================
+// FIND BEST MINIMUM
+// ================================================================
+
+int findBestMinimumIndex() {
+
+  int index = 0;
+
+
+  for (int i = 1;
+       i < POP_SIZE;
+       i++) {
+
+    if (
+      minFitness[i] <
+      minFitness[index]
+      ) {
+
+      index = i;
+    }
+  }
+
+
+  return index;
+}
+
+
+// ================================================================
+// FIND BEST MAXIMUM
+// ================================================================
+
+int findBestMaximumIndex() {
+
+  int index = 0;
+
+
+  for (int i = 1;
+       i < POP_SIZE;
+       i++) {
+
+    if (
+      maxFitness[i] >
+      maxFitness[index]
+      ) {
+
+      index = i;
+    }
+  }
+
+
+  return index;
+}
+
+
+// ================================================================
+// HEADER
+// ================================================================
+
+void drawHeader() {
+
+  fill(245);
+
+  textSize(width * 0.023);
+
+  text(
+    "GENETIC ALGORITHM : GLOBAL MINIMUM + MAXIMUM",
+    width * 0.035,
+    height * 0.018
+    );
+
+
+  fill(150, 215, 255);
+
+  textSize(width * 0.012);
+
+  text(
+    "f(x) = x(10-x)    |    DOMAIN [0,10]    |    1000 ITERATIONS",
+    width * 0.035,
+    height * 0.065
+    );
+}
+
+
+// ================================================================
+// FUNCTION GRAPH
+// ================================================================
+
+void drawFunctionGraph() {
+
+  float yMin = 0;
+  float yMax = 25;
+
+
+  // --------------------------------------------------------------
+  // PANEL
+  // --------------------------------------------------------------
+
+  noFill();
+
+  stroke(70, 90, 115);
+
+  strokeWeight(2);
+
+  rect(
+    graphLeft,
+    graphTop,
+    graphRight - graphLeft,
+    graphBottom - graphTop
+    );
+
+
+  // --------------------------------------------------------------
+  // GRID
+  // --------------------------------------------------------------
+
+  stroke(32, 48, 67);
+
+  strokeWeight(1);
+
+
+  for (int i = 0; i <= 10; i++) {
+
+    float px =
+      map(
+        i,
+        X_MIN,
+        X_MAX,
+        graphLeft,
+        graphRight
+        );
+
+    line(
+      px,
+      graphTop,
+      px,
+      graphBottom
+      );
+  }
+
+
+  for (int j = 0; j <= 5; j++) {
+
+    float value =
+      j * 5;
+
+    float py =
+      map(
+        value,
+        yMin,
+        yMax,
+        graphBottom,
+        graphTop
+        );
+
+    line(
+      graphLeft,
+      py,
+      graphRight,
+      py
+      );
+  }
+
+
+  // --------------------------------------------------------------
+  // FUNCTION
+  // --------------------------------------------------------------
+
+  noFill();
+
+  stroke(70, 220, 255);
+
+  strokeWeight(4);
+
+  beginShape();
+
+
+  for (int i = 0; i <= 400; i++) {
+
+    float x =
+      map(
+        i,
+        0,
+        400,
+        X_MIN,
+        X_MAX
+        );
+
+    float y =
+      objective(x);
+
+    float px =
+      map(
+        x,
+        X_MIN,
+        X_MAX,
+        graphLeft,
+        graphRight
+        );
+
+    float py =
+      map(
+        y,
+        yMin,
+        yMax,
+        graphBottom,
+        graphTop
+        );
+
+    vertex(px, py);
+  }
+
+
+  endShape();
+
+
+  // --------------------------------------------------------------
+  // MINIMUM POPULATION
+  // --------------------------------------------------------------
+
+  for (int i = 0; i < POP_SIZE; i++) {
+
+    drawPopulationPoint(
+      minPopulation[i],
+      255,
+      150,
+      60
+      );
+  }
+
+
+  // --------------------------------------------------------------
+  // MAXIMUM POPULATION
+  // --------------------------------------------------------------
+
+  for (int i = 0; i < POP_SIZE; i++) {
+
+    drawPopulationPoint(
+      maxPopulation[i],
+      70,
+      180,
+      255
+      );
+  }
+
+
+  // --------------------------------------------------------------
+  // THEORETICAL MINIMUMS
+  // --------------------------------------------------------------
+
+  drawExtremumMarker(
+    0,
+    0,
+    "THEORY MIN",
+    110,
+    255,
+    130
+    );
+
+
+  drawExtremumMarker(
+    10,
+    0,
+    "THEORY MIN",
+    110,
+    255,
+    130
+    );
+
+
+  // --------------------------------------------------------------
+  // THEORETICAL MAXIMUM
+  // --------------------------------------------------------------
+
+  drawExtremumMarker(
+    5,
+    25,
+    "THEORY MAX",
+    255,
+    100,
+    120
+    );
+
+
+  // --------------------------------------------------------------
+  // GA MINIMUM
+  // --------------------------------------------------------------
+
+  drawBestMarker(
+    globalMinX,
+    globalMinValue,
+    "GA MIN",
+    255,
+    190,
+    70
+    );
+
+
+  // --------------------------------------------------------------
+  // GA MAXIMUM
+  // --------------------------------------------------------------
+
+  drawBestMarker(
+    globalMaxX,
+    globalMaxValue,
+    "GA MAX",
+    80,
+    210,
+    255
+    );
+
+
+  // --------------------------------------------------------------
+  // AXIS
+  // --------------------------------------------------------------
+
+  fill(190);
+
+  textSize(width * 0.0095);
+
+
+  text(
+    "x",
+    graphRight + 5,
+    graphBottom - 10
+    );
+
+
+  text(
+    "f(x)",
+    graphLeft - 38,
+    graphTop - 5
+    );
+
+
+  for (int i = 0; i <= 10; i++) {
+
+    float px =
+      map(
+        i,
+        X_MIN,
+        X_MAX,
+        graphLeft,
+        graphRight
+        );
+
+    text(
+      str(i),
+      px - 4,
+      graphBottom + 5
+      );
+  }
+
+
+  for (int j = 0; j <= 5; j++) {
+
+    float value =
+      j * 5;
+
+    float py =
+      map(
+        value,
+        yMin,
+        yMax,
+        graphBottom,
+        graphTop
+        );
+
+    text(
+      nf(value, 1, 0),
+      graphLeft - 27,
+      py - 6
+      );
+  }
+
+
+  // --------------------------------------------------------------
+  // LEGEND
+  // --------------------------------------------------------------
+
+  fill(255, 170, 70);
+
+  text(
+    "ORANGE = MIN GA",
+    graphLeft,
+    graphBottom + height * 0.035
+    );
+
+
+  fill(80, 210, 255);
+
+  text(
+    "BLUE = MAX GA",
+    graphLeft + width * 0.20,
+    graphBottom + height * 0.035
+    );
+
+
+  fill(70, 220, 255);
+
+  text(
+    "CYAN = f(x)",
+    graphLeft + width * 0.39,
+    graphBottom + height * 0.035
+    );
+}
+
+
+// ================================================================
+// POPULATION POINT
+// ================================================================
+
+void drawPopulationPoint(
+  float x,
+  int r,
+  int g,
+  int b
+  ) {
+
+  float y =
+    objective(x);
+
+
+  float px =
+    map(
+      x,
+      X_MIN,
+      X_MAX,
+      graphLeft,
+      graphRight
+      );
+
+
+  float py =
+    map(
+      y,
+      0,
+      25,
+      graphBottom,
+      graphTop
+      );
+
+
+  noStroke();
+
+  fill(r, g, b);
+
+  ellipse(
+    px,
+    py,
+    width * 0.009,
+    width * 0.009
+    );
+}
+
+
+// ================================================================
+// EXTREMUM MARKER
+// ================================================================
+
+void drawExtremumMarker(
+  float x,
+  float y,
+  String label,
+  int r,
+  int g,
+  int b
+  ) {
+
+  float px =
+    map(
+      x,
+      X_MIN,
+      X_MAX,
+      graphLeft,
+      graphRight
+      );
+
+
+  float py =
+    map(
+      y,
+      0,
+      25,
+      graphBottom,
+      graphTop
+      );
+
+
+  stroke(r, g, b);
+
+  strokeWeight(3);
+
+
+  line(
+    px - width * 0.012,
+    py,
+    px + width * 0.012,
+    py
+    );
+
+
+  line(
+    px,
+    py - width * 0.012,
+    px,
+    py + width * 0.012
+    );
+
+
+  fill(r, g, b);
+
+  textSize(width * 0.008);
+
+  text(
+    label,
+    px + 7,
+    py - 20
+    );
+}
+
+
+// ================================================================
+// BEST GA MARKER
+// ================================================================
+
+void drawBestMarker(
+  float x,
+  float y,
+  String label,
+  int r,
+  int g,
+  int b
+  ) {
+
+  float px =
+    map(
+      x,
+      X_MIN,
+      X_MAX,
+      graphLeft,
+      graphRight
+      );
+
+
+  float py =
+    map(
+      y,
+      0,
+      25,
+      graphBottom,
+      graphTop
+      );
+
+
+  stroke(r, g, b);
+
+  strokeWeight(3);
+
+
+  line(
+    px - width * 0.015,
+    py,
+    px + width * 0.015,
+    py
+    );
+
+
+  line(
+    px,
+    py - width * 0.015,
+    px,
+    py + width * 0.015
+    );
+
+
+  fill(r, g, b);
+
+  textSize(width * 0.0085);
+
+
+  text(
+    label +
+    " x=" +
+    nf(x, 1, 4),
+    px + 8,
+    py + 5
+    );
+}
+
+
+// ================================================================
+// CONVERGENCE GRAPH
+// ================================================================
+
+void drawConvergenceGraph() {
+
+  // --------------------------------------------------------------
+  // PANEL
+  // --------------------------------------------------------------
+
+  noFill();
+
+  stroke(70, 90, 115);
+
+  strokeWeight(2);
+
+  rect(
+    graphLeft,
+    convergenceTop,
+    graphRight - graphLeft,
+    convergenceBottom - convergenceTop
+    );
+
+
+  // --------------------------------------------------------------
+  // GRID
+  // --------------------------------------------------------------
+
+  stroke(32, 48, 67);
+
+  strokeWeight(1);
+
+
+  for (int i = 0; i <= 5; i++) {
+
+    float value =
+      i * 5;
+
+    float py =
+      map(
+        value,
+        0,
+        25,
+        convergenceBottom,
+        convergenceTop
+        );
+
+    line(
+      graphLeft,
+      py,
+      graphRight,
+      py
+      );
+  }
+
+
+  // --------------------------------------------------------------
+  // HISTORY
+  // --------------------------------------------------------------
+
+  int last =
+    min(iteration, MAX_ITERATIONS);
+
+
+  // --------------------------------------------------------------
+  // MINIMUM HISTORY
+  // --------------------------------------------------------------
+
+  stroke(255, 170, 70);
+
+  strokeWeight(3);
+
+  noFill();
+
+  beginShape();
+
+
+  for (int i = 0; i <= last; i++) {
+
+    if (minHistory[i] == Float.MAX_VALUE) {
+      continue;
+    }
+
+
+    float px =
+      map(
+        i,
+        0,
+        MAX_ITERATIONS,
+        graphLeft,
+        graphRight
+        );
+
+
+    float py =
+      map(
+        minHistory[i],
+        0,
+        25,
+        convergenceBottom,
+        convergenceTop
+        );
+
+
+    py =
+      constrain(
+        py,
+        convergenceTop,
+        convergenceBottom
+        );
+
+
+    vertex(px, py);
+  }
+
+
+  endShape();
+
+
+  // --------------------------------------------------------------
+  // MAXIMUM HISTORY
+  // --------------------------------------------------------------
+
+  stroke(80, 210, 255);
+
+  strokeWeight(3);
+
+  noFill();
+
+  beginShape();
+
+
+  for (int i = 0; i <= last; i++) {
+
+    if (maxHistory[i] == -Float.MAX_VALUE) {
+      continue;
+    }
+
+
+    float px =
+      map(
+        i,
+        0,
+        MAX_ITERATIONS,
+        graphLeft,
+        graphRight
+        );
+
+
+    float py =
+      map(
+        maxHistory[i],
+        0,
+        25,
+        convergenceBottom,
+        convergenceTop
+        );
+
+
+    py =
+      constrain(
+        py,
+        convergenceTop,
+        convergenceBottom
+        );
+
+
+    vertex(px, py);
+  }
+
+
+  endShape();
+
+
+  // --------------------------------------------------------------
+  // THEORY MIN LINE
+  // --------------------------------------------------------------
+
+  stroke(110, 255, 130);
+
+  strokeWeight(2);
+
+
+  float minY =
+    map(
+      0,
+      0,
+      25,
+      convergenceBottom,
+      convergenceTop
+      );
+
+
+  line(
+    graphLeft,
+    minY,
+    graphRight,
+    minY
+    );
+
+
+  // --------------------------------------------------------------
+  // THEORY MAX LINE
+  // --------------------------------------------------------------
+
+  stroke(255, 100, 120);
+
+  strokeWeight(2);
+
+
+  float maxY =
+    map(
+      25,
+      0,
+      25,
+      convergenceBottom,
+      convergenceTop
+      );
+
+
+  line(
+    graphLeft,
+    maxY,
+    graphRight,
+    maxY
+    );
+
+
+  // --------------------------------------------------------------
+  // TITLE
+  // --------------------------------------------------------------
+
+  fill(235);
+
+  textSize(width * 0.0105);
+
+
+  text(
+    "CONVERGENCE",
+    graphLeft,
+    convergenceTop - height * 0.040
+    );
+
+
+  fill(255, 170, 70);
+
+  text(
+    "MIN -> 0",
+    graphLeft + width * 0.18,
+    convergenceTop - height * 0.040
+    );
+
+
+  fill(80, 210, 255);
+
+  text(
+    "MAX -> 25",
+    graphLeft + width * 0.30,
+    convergenceTop - height * 0.040
+    );
+
+
+  // --------------------------------------------------------------
+  // AXIS LABELS
+  // --------------------------------------------------------------
+
+  fill(170);
+
+  textSize(width * 0.008);
+
+
+  text(
+    "25",
+    graphLeft - 25,
+    convergenceTop - 4
+    );
+
+
+  text(
+    "0",
+    graphLeft - 15,
+    convergenceBottom - 6
+    );
+
+
+  text(
+    "0",
+    graphLeft,
+    convergenceBottom + 5
+    );
+
+
+  text(
+    "1000",
+    graphRight - 30,
+    convergenceBottom + 5
+    );
+}
+
+
+// ================================================================
+// STATUS
+// ================================================================
+
+void drawStatus() {
+
+  float sx =
+    width * 0.60;
+
+  float sy =
+    height * 0.018;
+
+
+  // --------------------------------------------------------------
+  // ITERATION
+  // --------------------------------------------------------------
+
+  fill(245);
+
+  textSize(width * 0.010);
+
+
+  text(
+    "ITERATION " +
+    iteration +
+    " / " +
+    MAX_ITERATIONS,
+    sx,
+    sy
+    );
+
+
+  // --------------------------------------------------------------
+  // MIN
+  // --------------------------------------------------------------
+
+  fill(255, 180, 70);
+
+  text(
+    "GA MINIMUM",
+    sx,
+    sy + height * 0.028
+    );
+
+
+  fill(230);
+
+  text(
+    "x = " +
+    nf(globalMinX, 1, 6),
+    sx,
+    sy + height * 0.052
+    );
+
+
+  text(
+    "f(x) = " +
+    nf(globalMinValue, 1, 7),
+    sx,
+    sy + height * 0.074
+    );
+
+
+  // --------------------------------------------------------------
+  // MAX
+  // --------------------------------------------------------------
+
+  float mx =
+    width * 0.78;
+
+
+  fill(80, 210, 255);
+
+  text(
+    "GA MAXIMUM",
+    mx,
+    sy + height * 0.028
+    );
+
+
+  fill(230);
+
+  text(
+    "x = " +
+    nf(globalMaxX, 1, 6),
+    mx,
+    sy + height * 0.052
+    );
+
+
+  text(
+    "f(x) = " +
+    nf(globalMaxValue, 1, 7),
+    mx,
+    sy + height * 0.074
+    );
+
+
+  // --------------------------------------------------------------
+  // THEORY
+  // --------------------------------------------------------------
+
+  fill(110, 255, 140);
+
+  textSize(width * 0.0088);
+
+
+  text(
+    "THEORY MIN = 0   x=0 or x=10",
+    sx,
+    sy + height * 0.098
+    );
+
+
+  fill(255, 110, 130);
+
+
+  text(
+    "THEORY MAX = 25   x=5",
+    sx,
+    sy + height * 0.120
+    );
+
+
+  // --------------------------------------------------------------
+  // STATUS
+  // --------------------------------------------------------------
+
+  if (finished) {
+
+    fill(150, 240, 170);
+
+    textSize(width * 0.0095);
+
+
+    text(
+      "1000 ITERATIONS COMPLETED",
+      sx,
+      sy + height * 0.145
+      );
+
+  } else {
+
+    fill(255, 205, 90);
+
+    textSize(width * 0.0095);
+
+
+    text(
+      "EVOLUTION SEARCHING...",
+      sx,
+      sy + height * 0.145
+      );
+  }
+}
+
+
+// ================================================================
+// BUTTONS
+// ================================================================
+
+void drawButtons() {
+
+  float buttonY =
+    height * 0.900;
+
+  float buttonH =
+    height * 0.060;
+
+  float gap =
+    width * 0.010;
+
+  float buttonW =
+    width * 0.145;
+
+  float startX =
+    width * 0.035;
+
+
+  drawButton(
+    startX,
+    buttonY,
+    buttonW,
+    buttonH,
+    "NEW RUN"
+    );
+
+
+  drawButton(
+    startX + buttonW + gap,
+    buttonY,
+    buttonW,
+    buttonH,
+    running ? "PAUSE" : "RUN"
+    );
+
+
+  drawButton(
+    startX + 2 * (buttonW + gap),
+    buttonY,
+    buttonW,
+    buttonH,
+    "STEP"
+    );
+
+
+  drawButton(
+    startX + 3 * (buttonW + gap),
+    buttonY,
+    buttonW,
+    buttonH,
+    "RESET"
+    );
+}
+
+
+// ================================================================
+// BUTTON
+// ================================================================
+
+void drawButton(
+  float x,
+  float y,
+  float w,
+  float h,
+  String label
+  ) {
+
+  fill(25, 43, 64);
+
+  stroke(85, 125, 160);
+
+  strokeWeight(2);
+
+
+  rect(
+    x,
+    y,
+    w,
+    h,
+    10
+    );
+
+
+  fill(240);
+
+  textAlign(CENTER, CENTER);
+
+  textSize(width * 0.010);
+
+
+  text(
+    label,
+    x + w * 0.5,
+    y + h * 0.5
+    );
+
+
+  textAlign(LEFT, TOP);
+}
+
+
+// ================================================================
+// TOUCH
+// ================================================================
+
+void mousePressed() {
+
+  float buttonY =
+    height * 0.900;
+
+  float buttonH =
+    height * 0.060;
+
+  float gap =
+    width * 0.010;
+
+  float buttonW =
+    width * 0.145;
+
+  float startX =
+    width * 0.035;
+
+
+  // --------------------------------------------------------------
+  // NEW RUN
+  // --------------------------------------------------------------
+
+  if (
+    inside(
+      mouseX,
+      mouseY,
+      startX,
+      buttonY,
+      buttonW,
+      buttonH
+      )
+    ) {
+
+    resetGA();
+
+    return;
+  }
+
+
+  // --------------------------------------------------------------
+  // PAUSE / RUN
+  // --------------------------------------------------------------
+
+  if (
+    inside(
+      mouseX,
+      mouseY,
+      startX + buttonW + gap,
+      buttonY,
+      buttonW,
+      buttonH
+      )
+    ) {
+
+    if (!finished) {
+
+      running =
+        !running;
+
+
+      if (running) {
+
+        lastIterationTime =
+          millis();
+      }
+    }
+
+    return;
+  }
+
+
+  // --------------------------------------------------------------
+  // STEP
+  // --------------------------------------------------------------
+
+  if (
+    inside(
+      mouseX,
+      mouseY,
+      startX + 2 * (buttonW + gap),
+      buttonY,
+      buttonW,
+      buttonH
+      )
+    ) {
+
+    if (!finished) {
+
+      running = false;
+
+      evolveOneIteration();
+    }
+
+    return;
+  }
+
+
+  // --------------------------------------------------------------
+  // RESET
+  // --------------------------------------------------------------
+
+  if (
+    inside(
+      mouseX,
+      mouseY,
+      startX + 3 * (buttonW + gap),
+      buttonY,
+      buttonW,
+      buttonH
+      )
+    ) {
+
+    resetGA();
+
+    return;
+  }
+}
+
+
+// ================================================================
+// HIT TEST
+// ================================================================
+
+boolean inside(
+  float px,
+  float py,
+  float x,
+  float y,
+  float w,
+  float h
+  ) {
+
+  return
+    px >= x &&
+    px <= x + w &&
+    py >= y &&
+    py <= y + h;
+}
