@@ -1,0 +1,2254 @@
+/*
+======================================================================
+ 100-FUNCTION GENETIC ALGORITHM EXTREMA EXPLORER
+ APDE / PROCESSING FOR ANDROID / P3D
+
+ PURPOSE
+ ---------------------------------------------------------------------
+ Find:
+
+ 1. MULTIPLE LOCAL MAXIMA
+ 2. MULTIPLE LOCAL MINIMA
+ 3. NUMERICAL GLOBAL MAXIMUM
+ 4. NUMERICAL GLOBAL MINIMUM
+ 5. SADDLE / STATIONARY CURVATURE POINTS
+ 6. 100 DIFFERENT 2-D FUNCTIONS
+ 7. 3-D SURFACE VISUALIZATION
+ 8. GA POPULATION
+ 9. GRID VERIFICATION
+10. DOMAIN-BOUNDARY VERIFICATION
+11. TOUCH ROTATION
+12. TWO-FINGER ZOOM
+13. AUTO GA
+14. RESET
+15. FUNCTION SELECTION
+
+ DOMAIN
+ ---------------------------------------------------------------------
+ x in [-5,5]
+ y in [-5,5]
+
+ IMPORTANT
+ ---------------------------------------------------------------------
+ GA = candidate discovery
+ GRID + BOUNDARY = independent numerical verification
+ HESSIAN = classification
+
+ Colors
+ ---------------------------------------------------------------------
+ RED    = maximum
+ BLUE   = minimum
+ YELLOW = saddle / stationary curvature candidate
+ WHITE  = GA population
+
+======================================================================
+*/
+
+import android.view.MotionEvent;
+
+
+// ================================================================
+// DOMAIN
+// ================================================================
+
+float XMIN = -5.0;
+float XMAX =  5.0;
+
+float YMIN = -5.0;
+float YMAX =  5.0;
+
+
+// ================================================================
+// FUNCTION LIBRARY
+// ================================================================
+
+final int FUNCTION_COUNT = 100;
+
+int functionID = 1;
+
+
+// ================================================================
+// 3D SURFACE
+// ================================================================
+
+int NX = 55;
+int NY = 55;
+
+float ZSCALE = 45.0;
+
+float[][] surfaceZ;
+
+
+// ================================================================
+// GA
+// ================================================================
+
+int POPULATION_SIZE = 100;
+int ELITE_COUNT = 12;
+
+float MUTATION_RATE = 0.22;
+float MUTATION_SIZE = 0.50;
+
+int generation = 0;
+
+
+// ================================================================
+// SEARCH MODES
+// ================================================================
+
+final int SEARCH_MAX = 0;
+final int SEARCH_MIN = 1;
+final int SEARCH_SADDLE = 2;
+
+int searchMode = SEARCH_MAX;
+
+
+// ================================================================
+// INDIVIDUAL
+// ================================================================
+
+class Individual {
+
+  float x;
+  float y;
+  float fitness;
+
+  Individual(float xx, float yy) {
+
+    x = constrain(xx, XMIN, XMAX);
+    y = constrain(yy, YMIN, YMAX);
+
+    fitness = 0;
+  }
+}
+
+
+Individual[] population;
+
+
+// ================================================================
+// FEATURE
+// ================================================================
+
+class Feature {
+
+  float x;
+  float y;
+  float z;
+
+  Feature(float xx, float yy, float zz) {
+
+    x = xx;
+    y = yy;
+    z = zz;
+  }
+}
+
+
+// ================================================================
+// FEATURE STORAGE
+// ================================================================
+
+Feature[] maxima = new Feature[40];
+Feature[] minima = new Feature[40];
+Feature[] saddles = new Feature[40];
+
+int maxCount = 0;
+int minCount = 0;
+int saddleCount = 0;
+
+
+// ================================================================
+// GLOBAL NUMERICAL RESULTS
+// ================================================================
+
+float globalMaxX = 0;
+float globalMaxY = 0;
+float globalMaxZ = -1e30;
+
+float globalMinX = 0;
+float globalMinY = 0;
+float globalMinZ = 1e30;
+
+float gridMaxZ = -1e30;
+float gridMinZ = 1e30;
+
+float gridMaxX = 0;
+float gridMaxY = 0;
+
+float gridMinX = 0;
+float gridMinY = 0;
+
+
+// ================================================================
+// CAMERA
+// ================================================================
+
+float rotX = -0.72;
+float rotY = 0.72;
+
+float zoom = 1.0;
+
+float lastTouchX = 0;
+float lastTouchY = 0;
+
+float pinchDistance = -1;
+
+boolean dragging = false;
+
+
+// ================================================================
+// AUTO RUN
+// ================================================================
+
+boolean autoRun = true;
+
+int frameCounter = 0;
+
+
+// ================================================================
+// SETUP
+// ================================================================
+
+void setup() {
+
+  fullScreen(P3D);
+
+  orientation(LANDSCAPE);
+
+  surfaceZ = new float[NX][NY];
+
+  population = new Individual[POPULATION_SIZE];
+
+  generateSurface();
+
+  resetSearch();
+
+  textAlign(LEFT, TOP);
+
+  frameRate(30);
+}
+
+
+// ================================================================
+// DRAW
+// ================================================================
+
+void draw() {
+
+  background(7, 11, 20);
+
+  lights();
+
+  if (autoRun) {
+
+    frameCounter++;
+
+    if (frameCounter >= 10) {
+
+      runGeneration();
+
+      frameCounter = 0;
+    }
+  }
+
+  draw3D();
+
+  drawUI();
+}
+
+
+// ================================================================
+// 100 FUNCTION NAMES
+// ================================================================
+
+String functionName(int id) {
+
+  switch(id) {
+
+    case 1: return "F01  x^2 + y^2";
+    case 2: return "F02  (x-1)^2 + (y+1)^2";
+    case 3: return "F03  (x+2)^2 + (y-2)^2";
+    case 4: return "F04  x^2 + 2y^2 - 3x";
+    case 5: return "F05  2x^2 + y^2 + xy";
+    case 6: return "F06  x^4 + y^4";
+    case 7: return "F07  (x^2-4)^2 + (y^2-1)^2";
+    case 8: return "F08  (x^2-4)^2 + (y^2-4)^2";
+    case 9: return "F09  x^2y^2 + .5x^2 + .5y^2";
+    case 10: return "F10  x^2+y^2+2sin(x)";
+
+    case 11: return "F11  2sin(x)+cos(y)";
+    case 12: return "F12  sin(x)+sin(y)";
+    case 13: return "F13  cos(x)+cos(y)";
+    case 14: return "F14  sin(x)cos(y)";
+    case 15: return "F15  sin(xy)";
+    case 16: return "F16  cos(xy)";
+    case 17: return "F17  sin(x+y)";
+    case 18: return "F18  2sin(x)cos(y)+sin(2x)";
+    case 19: return "F19  cos(2x)+cos(2y)";
+    case 20: return "F20  sin(2x)+.5cos(3y)";
+
+    case 21: return "F21  x^2+y^2+sin(x)sin(y)";
+    case 22: return "F22  x^2-y^2";
+    case 23: return "F23  x^3-3xy^2";
+    case 24: return "F24  x^3+y^3-3xy";
+    case 25: return "F25  x^4-2x^2+y^2";
+    case 26: return "F26  x^2y+y^2";
+    case 27: return "F27  xy+sin(x)+cos(y)";
+    case 28: return "F28  x^2+y^2+sin(2x+2y)";
+    case 29: return "F29  x^2+y^2+cos(3x-y)";
+    case 30: return "F30  x^2-y^2+sin(xy)";
+
+    case 31: return "F31  0.5x^2+0.7y^2+sin(x)";
+    case 32: return "F32  0.8x^2+0.3y^2+cos(y)";
+    case 33: return "F33  x^2+y^2+sin(3x)";
+    case 34: return "F34  x^2+y^2+cos(3y)";
+    case 35: return "F35  x^2+2y^2+sin(2x)cos(y)";
+    case 36: return "F36  2x^2+y^2+cos(xy)";
+    case 37: return "F37  x^2+3y^2+sin(x+y)";
+    case 38: return "F38  3x^2+y^2+cos(x-y)";
+    case 39: return "F39  x^2+y^2+sin(x)cos(2y)";
+    case 40: return "F40  2x^2+2y^2+sin(2xy)";
+
+    case 41: return "F41  +Gaussian peak";
+    case 42: return "F42  -Gaussian valley";
+    case 43: return "F43  two peaks";
+    case 44: return "F44  two valleys";
+    case 45: return "F45  peak + valley";
+    case 46: return "F46  four Gaussian peaks";
+    case 47: return "F47  four Gaussian valleys";
+    case 48: return "F48  checkerboard Gaussians";
+    case 49: return "F49  diagonal Gaussian pair";
+    case 50: return "F50  opposing Gaussian pair";
+
+    case 51: return "F51  Gaussian + ripple";
+    case 52: return "F52  inverted Gaussian + ripple";
+    case 53: return "F53  twin peak ripple";
+    case 54: return "F54  twin valley ripple";
+    case 55: return "F55  central hill";
+    case 56: return "F56  central pit";
+    case 57: return "F57  four hills";
+    case 58: return "F58  four pits";
+    case 59: return "F59  hill-valley checker";
+    case 60: return "F60  diagonal hills";
+
+    case 61: return "F61  ripple 1";
+    case 62: return "F62  ripple 2";
+    case 63: return "F63  ripple 3";
+    case 64: return "F64  ripple 4";
+    case 65: return "F65  ripple 5";
+    case 66: return "F66  ripple 6";
+    case 67: return "F67  ripple 7";
+    case 68: return "F68  ripple 8";
+    case 69: return "F69  ripple 9";
+    case 70: return "F70  ripple 10";
+
+    case 71: return "F71  mixed 1";
+    case 72: return "F72  mixed 2";
+    case 73: return "F73  mixed 3";
+    case 74: return "F74  mixed 4";
+    case 75: return "F75  mixed 5";
+    case 76: return "F76  mixed 6";
+    case 77: return "F77  mixed 7";
+    case 78: return "F78  mixed 8";
+    case 79: return "F79  mixed 9";
+    case 80: return "F80  mixed 10";
+
+    case 81: return "F81  benchmark 1";
+    case 82: return "F82  benchmark 2";
+    case 83: return "F83  benchmark 3";
+    case 84: return "F84  benchmark 4";
+    case 85: return "F85  benchmark 5";
+    case 86: return "F86  benchmark 6";
+    case 87: return "F87  benchmark 7";
+    case 88: return "F88  benchmark 8";
+    case 89: return "F89  benchmark 9";
+    case 90: return "F90  benchmark 10";
+
+    case 91: return "F91  final 1";
+    case 92: return "F92  final 2";
+    case 93: return "F93  final 3";
+    case 94: return "F94  final 4";
+    case 95: return "F95  final 5";
+    case 96: return "F96  final 6";
+    case 97: return "F97  final 7";
+    case 98: return "F98  final 8";
+    case 99: return "F99  final 9";
+    case 100: return "F100 final 10";
+  }
+
+  return "Unknown";
+}
+
+
+// ================================================================
+// MASTER FUNCTION
+// ================================================================
+
+float F(int id, float x, float y) {
+
+  switch(id) {
+
+    case 1:
+      return x*x + y*y;
+
+    case 2:
+      return sq(x-1) + sq(y+1);
+
+    case 3:
+      return sq(x+2) + sq(y-2);
+
+    case 4:
+      return x*x + 2*y*y - 3*x;
+
+    case 5:
+      return 2*x*x + y*y + x*y;
+
+    case 6:
+      return pow(x,4) + pow(y,4);
+
+    case 7:
+      return sq(x*x-4) + sq(y*y-1);
+
+    case 8:
+      return sq(x*x-4) + sq(y*y-4);
+
+    case 9:
+      return x*x*y*y + 0.5*x*x + 0.5*y*y;
+
+    case 10:
+      return x*x + y*y + 2*sin(x);
+
+
+    case 11:
+      return 2*sin(x) + cos(y);
+
+    case 12:
+      return sin(x) + sin(y);
+
+    case 13:
+      return cos(x) + cos(y);
+
+    case 14:
+      return sin(x)*cos(y);
+
+    case 15:
+      return sin(x*y);
+
+    case 16:
+      return cos(x*y);
+
+    case 17:
+      return sin(x+y);
+
+    case 18:
+      return 2*sin(x)*cos(y) + sin(2*x);
+
+    case 19:
+      return cos(2*x) + cos(2*y);
+
+    case 20:
+      return sin(2*x) + 0.5*cos(3*y);
+
+
+    case 21:
+      return x*x+y*y+sin(x)*sin(y);
+
+    case 22:
+      return x*x-y*y;
+
+    case 23:
+      return x*x*x - 3*x*y*y;
+
+    case 24:
+      return x*x*x+y*y*y-3*x*y;
+
+    case 25:
+      return pow(x,4)-2*x*x+y*y;
+
+    case 26:
+      return x*x*y+y*y;
+
+    case 27:
+      return x*y+sin(x)+cos(y);
+
+    case 28:
+      return x*x+y*y+sin(2*x+2*y);
+
+    case 29:
+      return x*x+y*y+cos(3*x-y);
+
+    case 30:
+      return x*x-y*y+sin(x*y);
+
+
+    case 31:
+      return 0.5*x*x+0.7*y*y+sin(x);
+
+    case 32:
+      return 0.8*x*x+0.3*y*y+cos(y);
+
+    case 33:
+      return x*x+y*y+sin(3*x);
+
+    case 34:
+      return x*x+y*y+cos(3*y);
+
+    case 35:
+      return x*x+2*y*y+sin(2*x)*cos(y);
+
+    case 36:
+      return 2*x*x+y*y+cos(x*y);
+
+    case 37:
+      return x*x+3*y*y+sin(x+y);
+
+    case 38:
+      return 3*x*x+y*y+cos(x-y);
+
+    case 39:
+      return x*x+y*y+sin(x)*cos(2*y);
+
+    case 40:
+      return 2*x*x+2*y*y+sin(2*x*y);
+
+
+    case 41:
+      return G(2,2,3.5,1.0);
+
+    case 42:
+      return -G(-2,-2,3.5,1.0);
+
+    case 43:
+      return G(-2,-2,3.0,1.0)
+           + G(2,2,3.0,1.0);
+
+    case 44:
+      return -G(-2,2,3.0,1.0)
+           - G(2,-2,3.0,1.0);
+
+    case 45:
+      return G(2,2,3.2,1.0)
+           - G(-2,-2,3.2,1.0);
+
+    case 46:
+      return G(-2,-2,2.5,0.8)
+           + G(-2,2,2.5,0.8)
+           + G(2,-2,2.5,0.8)
+           + G(2,2,2.5,0.8);
+
+    case 47:
+      return -G(-2,-2,2.5,0.8)
+           - G(-2,2,2.5,0.8)
+           - G(2,-2,2.5,0.8)
+           - G(2,2,2.5,0.8);
+
+    case 48:
+      return G(-2,-2,2.2,0.7)
+           - G(-2,2,2.2,0.7)
+           - G(2,-2,2.2,0.7)
+           + G(2,2,2.2,0.7);
+
+    case 49:
+      return G(-2,-2,2.7,0.9)
+           + G(2,2,2.7,0.9);
+
+    case 50:
+      return G(-2,2,2.7,0.9)
+           - G(2,-2,2.7,0.9);
+
+
+    case 51:
+      return G(1.8,1.8,2.8,1.0)
+           + 0.7*sin(2*x)*cos(2*y);
+
+    case 52:
+      return -G(1.8,1.8,2.8,1.0)
+           + 0.7*sin(2*x)*cos(2*y);
+
+    case 53:
+      return G(-2,0,2.8,0.9)
+           + G(2,0,2.8,0.9)
+           + 0.4*sin(3*x);
+
+    case 54:
+      return -G(-2,0,2.8,0.9)
+           - G(2,0,2.8,0.9)
+           + 0.4*cos(3*y);
+
+    case 55:
+      return G(0,0,2.2,1.0)
+           + 0.3*cos(2*x+2*y);
+
+    case 56:
+      return -G(0,0,2.2,1.0)
+           + 0.3*cos(2*x+2*y);
+
+    case 57:
+      return G(-2,-2,2.0,0.7)
+           + G(2,-2,2.0,0.7)
+           + G(-2,2,2.0,0.7)
+           + G(2,2,2.0,0.7);
+
+    case 58:
+      return -G(-2,-2,2.0,0.7)
+           - G(2,-2,2.0,0.7)
+           - G(-2,2,2.0,0.7)
+           - G(2,2,2.0,0.7);
+
+    case 59:
+      return G(-2,-2,2.0,0.8)
+           - G(2,2,2.0,0.8);
+
+    case 60:
+      return G(-2,-2,2.8,1.0)
+           + G(2,2,2.8,1.0)
+           - G(-2,2,1.8,0.7);
+
+
+    case 61:
+      return sin(2*x)+sin(2*y);
+
+    case 62:
+      return sin(3*x)*cos(2*y);
+
+    case 63:
+      return cos(3*x)+sin(4*y);
+
+    case 64:
+      return sin(4*x+y);
+
+    case 65:
+      return cos(2*x-3*y);
+
+    case 66:
+      return sin(2*x)*sin(3*y);
+
+    case 67:
+      return cos(4*x)*cos(2*y);
+
+    case 68:
+      return sin(3*x+2*y)+cos(x-3*y);
+
+    case 69:
+      return 1.5*sin(2*x)+cos(2*y);
+
+    case 70:
+      return 2*sin(3*x)*cos(3*y);
+
+
+    case 71:
+      return x*x+y*y+2*sin(2*x)+cos(3*y);
+
+    case 72:
+      return x*x-y*y+sin(3*x)*cos(2*y);
+
+    case 73:
+      return 0.3*x*x+0.5*y*y+sin(2*x+y);
+
+    case 74:
+      return 0.4*x*x-0.7*y*y+cos(x+2*y);
+
+    case 75:
+      return x*x+y*y+sin(3*x*y);
+
+    case 76:
+      return 2*x*x+y*y+sin(x*y)+cos(2*x);
+
+    case 77:
+      return 0.5*x*x+2*y*y+cos(x*y)+sin(2*y);
+
+    case 78:
+      return x*x+y*y+sin(2*x)+sin(2*y)+cos(x-y);
+
+    case 79:
+      return x*x-0.5*y*y+sin(2*x*y);
+
+    case 80:
+      return 0.7*x*x+0.7*y*y+sin(3*x)*cos(3*y);
+
+
+    case 81:
+      return sq(x*x-2) + sq(y*y-2);
+
+    case 82:
+      return sq(x*x-3) + 0.5*sq(y*y-1);
+
+    case 83:
+      return sq(x*x-1) + sq(y*y-3);
+
+    case 84:
+      return pow(x,4)+pow(y,4)-2*x*x-2*y*y;
+
+    case 85:
+      return pow(x,4)+pow(y,4)+x*y;
+
+    case 86:
+      return sq(x*x+y*y-4);
+
+    case 87:
+      return sq(x*x-y*y-2);
+
+    case 88:
+      return sq(x*y-2);
+
+    case 89:
+      return sq(sin(x)+cos(y));
+
+    case 90:
+      return sq(cos(x)-sin(y));
+
+
+    case 91:
+      return G(-2,-2,2.5,0.8)
+           - G(2,2,2.5,0.8)
+           + 0.3*sin(3*x)*cos(3*y);
+
+    case 92:
+      return 1.5*G(2,-2,2.4,0.8)
+           - 0.9*G(-2,2,2.4,0.8)
+           + 0.4*cos(2*x+y);
+
+    case 93:
+      return G(0,0,3.0,1.0)
+           - 0.8*G(2,2,2.0,0.7)
+           + 0.5*sin(2*x);
+
+    case 94:
+      return -G(0,0,3.0,1.0)
+           + 0.8*G(-2,-2,2.0,0.7)
+           + 0.5*cos(2*y);
+
+    case 95:
+      return G(-2,0,2.3,0.8)
+           + G(2,0,2.3,0.8)
+           + sin(x*y);
+
+    case 96:
+      return -G(-2,0,2.3,0.8)
+           - G(2,0,2.3,0.8)
+           + cos(x*y);
+
+    case 97:
+      return x*x+y*y
+           + 2.0*sin(2*x)
+           + 1.5*cos(2*y);
+
+    case 98:
+      return x*x-y*y
+           + 1.2*sin(3*x+y);
+
+    case 99:
+      return G(-2,-2,2.0,0.6)
+           + G(2,2,2.0,0.6)
+           + G(-2,2,1.5,0.7)
+           - G(2,-2,1.5,0.7);
+
+    case 100:
+      return 2.0*sin(x)
+           + 1.5*cos(y)
+           + 0.5*sin(2*x*y);
+  }
+
+  return 0;
+}
+
+
+// ================================================================
+// GAUSSIAN
+// ================================================================
+
+float G(
+  float cx,
+  float cy,
+  float amp,
+  float sigma
+) {
+
+  float r2 =
+    sq(xPlaceholder(cx)) +
+    sq(yPlaceholder(cy));
+
+  return amp * exp(-r2 / (2.0*sigma*sigma));
+}
+
+
+// ================================================================
+// HELPER FOR GAUSSIAN
+// ================================================================
+
+float currentXForGaussian;
+float currentYForGaussian;
+
+float xPlaceholder(float cx) {
+  return currentXForGaussian - cx;
+}
+
+float yPlaceholder(float cy) {
+  return currentYForGaussian - cy;
+}
+
+
+// ================================================================
+// REAL FUNCTION EVALUATOR WRAPPER
+// ================================================================
+
+float functionValue(
+  int id,
+  float x,
+  float y
+) {
+
+  currentXForGaussian = x;
+  currentYForGaussian = y;
+
+  return F(id,x,y);
+}
+
+
+// ================================================================
+// SURFACE
+// ================================================================
+
+void generateSurface() {
+
+  for (int i = 0; i < NX; i++) {
+
+    float x =
+      map(
+        i,
+        0,
+        NX-1,
+        XMIN,
+        XMAX
+      );
+
+    for (int j = 0; j < NY; j++) {
+
+      float y =
+        map(
+          j,
+          0,
+          NY-1,
+          YMIN,
+          YMAX
+        );
+
+      surfaceZ[i][j] =
+        functionValue(
+          functionID,
+          x,
+          y
+        );
+    }
+  }
+}
+
+
+// ================================================================
+// NUMERICAL DERIVATIVES
+// ================================================================
+
+float EPS = 0.015;
+
+
+float fx(float x,float y) {
+
+  return (
+    functionValue(functionID,x+EPS,y)
+    -
+    functionValue(functionID,x-EPS,y)
+  ) / (2.0*EPS);
+}
+
+
+float fy(float x,float y) {
+
+  return (
+    functionValue(functionID,x,y+EPS)
+    -
+    functionValue(functionID,x,y-EPS)
+  ) / (2.0*EPS);
+}
+
+
+float fxx(float x,float y) {
+
+  return (
+    functionValue(functionID,x+EPS,y)
+    -
+    2.0*functionValue(functionID,x,y)
+    +
+    functionValue(functionID,x-EPS,y)
+  ) / (EPS*EPS);
+}
+
+
+float fyy(float x,float y) {
+
+  return (
+    functionValue(functionID,x,y+EPS)
+    -
+    2.0*functionValue(functionID,x,y)
+    +
+    functionValue(functionID,x,y-EPS)
+  ) / (EPS*EPS);
+}
+
+
+float fxy(float x,float y) {
+
+  return (
+    functionValue(functionID,x+EPS,y+EPS)
+    -
+    functionValue(functionID,x+EPS,y-EPS)
+    -
+    functionValue(functionID,x-EPS,y+EPS)
+    +
+    functionValue(functionID,x-EPS,y-EPS)
+  ) / (4.0*EPS*EPS);
+}
+
+
+// ================================================================
+// FITNESS
+// ================================================================
+
+float fitness(float x,float y) {
+
+  float z =
+    functionValue(
+      functionID,
+      x,
+      y
+    );
+
+  if (searchMode == SEARCH_MAX) {
+    return z;
+  }
+
+  if (searchMode == SEARCH_MIN) {
+    return -z;
+  }
+
+  float gx = fx(x,y);
+  float gy = fy(x,y);
+
+  float a = fxx(x,y);
+  float b = fyy(x,y);
+  float c = fxy(x,y);
+
+  float D =
+    a*b - c*c;
+
+  return
+    1.0 /
+    (
+      0.01
+      +
+      abs(D)
+      +
+      0.6*sqrt(gx*gx+gy*gy)
+    );
+}
+
+
+// ================================================================
+// INITIAL POPULATION
+// ================================================================
+
+void initializePopulation() {
+
+  for (int i=0;i<POPULATION_SIZE;i++) {
+
+    population[i] =
+      new Individual(
+        random(XMIN,XMAX),
+        random(YMIN,YMAX)
+      );
+
+    population[i].fitness =
+      fitness(
+        population[i].x,
+        population[i].y
+      );
+  }
+}
+
+
+// ================================================================
+// SORT
+// ================================================================
+
+void sortPopulation() {
+
+  for(int i=0;i<POPULATION_SIZE-1;i++) {
+
+    for(int j=i+1;j<POPULATION_SIZE;j++) {
+
+      if(
+        population[j].fitness >
+        population[i].fitness
+      ) {
+
+        Individual t =
+          population[i];
+
+        population[i] =
+          population[j];
+
+        population[j] =
+          t;
+      }
+    }
+  }
+}
+
+
+// ================================================================
+// TOURNAMENT
+// ================================================================
+
+Individual tournament() {
+
+  Individual best = null;
+
+  for(int k=0;k<5;k++) {
+
+    int index =
+      int(random(POPULATION_SIZE));
+
+    Individual c =
+      population[index];
+
+    if(
+      best == null ||
+      c.fitness > best.fitness
+    ) {
+
+      best = c;
+    }
+  }
+
+  return best;
+}
+
+
+// ================================================================
+// GA GENERATION
+// ================================================================
+
+void runGeneration() {
+
+  for(int i=0;i<POPULATION_SIZE;i++) {
+
+    population[i].fitness =
+      fitness(
+        population[i].x,
+        population[i].y
+      );
+  }
+
+  sortPopulation();
+
+  archiveCandidates();
+
+  Individual[] next =
+    new Individual[
+      POPULATION_SIZE
+    ];
+
+  // Elite
+  for(int i=0;i<ELITE_COUNT;i++) {
+
+    next[i] =
+      new Individual(
+        population[i].x,
+        population[i].y
+      );
+  }
+
+  // Crossover and mutation
+  for(
+    int i=ELITE_COUNT;
+    i<POPULATION_SIZE;
+    i++
+  ) {
+
+    /*
+       IMMIGRANT FRACTION
+       prevents collapse onto
+       one single optimum.
+    */
+
+    if(random(1)<0.25) {
+
+      next[i] =
+        new Individual(
+          random(XMIN,XMAX),
+          random(YMIN,YMAX)
+        );
+
+      continue;
+    }
+
+    Individual p1 =
+      tournament();
+
+    Individual p2 =
+      tournament();
+
+    float x =
+      0.5*(p1.x+p2.x);
+
+    float y =
+      0.5*(p1.y+p2.y);
+
+    if(random(1)<MUTATION_RATE) {
+
+      x +=
+        randomGaussian() *
+        MUTATION_SIZE;
+    }
+
+    if(random(1)<MUTATION_RATE) {
+
+      y +=
+        randomGaussian() *
+        MUTATION_SIZE;
+    }
+
+    next[i] =
+      new Individual(
+        constrain(x,XMIN,XMAX),
+        constrain(y,YMIN,YMAX)
+      );
+  }
+
+  population = next;
+
+  generation++;
+
+  if(generation%8==0) {
+
+    verifyGrid();
+
+    detectStationaryPoints();
+  }
+}
+
+
+// ================================================================
+// ARCHIVE CANDIDATES
+// ================================================================
+
+void archiveCandidates() {
+
+  for(int i=0;i<POPULATION_SIZE;i++) {
+
+    float x =
+      population[i].x;
+
+    float y =
+      population[i].y;
+
+    float z =
+      functionValue(
+        functionID,
+        x,
+        y
+      );
+
+    if(searchMode==SEARCH_MAX) {
+
+      if(isLocalMaximumCandidate(x,y)) {
+
+        addMaximum(x,y,z);
+      }
+    }
+
+    else if(searchMode==SEARCH_MIN) {
+
+      if(isLocalMinimumCandidate(x,y)) {
+
+        addMinimum(x,y,z);
+      }
+    }
+
+    else {
+
+      if(isSaddleCandidate(x,y)) {
+
+        addSaddle(x,y,z);
+      }
+    }
+  }
+}
+
+
+// ================================================================
+// LOCAL MAX CHECK
+// ================================================================
+
+boolean isLocalMaximumCandidate(
+  float x,
+  float y
+) {
+
+  float g =
+    sqrt(
+      fx(x,y)*fx(x,y)
+      +
+      fy(x,y)*fy(x,y)
+    );
+
+  float D =
+    fxx(x,y)*fyy(x,y)
+    -
+    fxy(x,y)*fxy(x,y);
+
+  return
+    g < 0.35
+    &&
+    D > 0
+    &&
+    fxx(x,y) < 0;
+}
+
+
+// ================================================================
+// LOCAL MIN CHECK
+// ================================================================
+
+boolean isLocalMinimumCandidate(
+  float x,
+  float y
+) {
+
+  float g =
+    sqrt(
+      fx(x,y)*fx(x,y)
+      +
+      fy(x,y)*fy(x,y)
+    );
+
+  float D =
+    fxx(x,y)*fyy(x,y)
+    -
+    fxy(x,y)*fxy(x,y);
+
+  return
+    g < 0.35
+    &&
+    D > 0
+    &&
+    fxx(x,y) > 0;
+}
+
+
+// ================================================================
+// SADDLE CHECK
+// ================================================================
+
+boolean isSaddleCandidate(
+  float x,
+  float y
+) {
+
+  float g =
+    sqrt(
+      fx(x,y)*fx(x,y)
+      +
+      fy(x,y)*fy(x,y)
+    );
+
+  float D =
+    fxx(x,y)*fyy(x,y)
+    -
+    fxy(x,y)*fxy(x,y);
+
+  return
+    g < 0.35 &&
+    D < 0;
+}
+
+
+// ================================================================
+// ADD MAXIMUM
+// ================================================================
+
+void addMaximum(
+  float x,
+  float y,
+  float z
+) {
+
+  if(
+    duplicate(
+      maxima,
+      maxCount,
+      x,y
+    )
+  ) {
+    return;
+  }
+
+  if(maxCount<maxima.length) {
+
+    maxima[maxCount] =
+      new Feature(
+        x,y,z
+      );
+
+    maxCount++;
+  }
+}
+
+
+// ================================================================
+// ADD MINIMUM
+// ================================================================
+
+void addMinimum(
+  float x,
+  float y,
+  float z
+) {
+
+  if(
+    duplicate(
+      minima,
+      minCount,
+      x,y
+    )
+  ) {
+    return;
+  }
+
+  if(minCount<minima.length) {
+
+    minima[minCount] =
+      new Feature(
+        x,y,z
+      );
+
+    minCount++;
+  }
+}
+
+
+// ================================================================
+// ADD SADDLE
+// ================================================================
+
+void addSaddle(
+  float x,
+  float y,
+  float z
+) {
+
+  if(
+    duplicate(
+      saddles,
+      saddleCount,
+      x,y
+    )
+  ) {
+    return;
+  }
+
+  if(saddleCount<saddles.length) {
+
+    saddles[saddleCount] =
+      new Feature(
+        x,y,z
+      );
+
+    saddleCount++;
+  }
+}
+
+
+// ================================================================
+// DUPLICATE
+// ================================================================
+
+boolean duplicate(
+  Feature[] a,
+  int count,
+  float x,
+  float y
+) {
+
+  for(int i=0;i<count;i++) {
+
+    float dx =
+      a[i].x-x;
+
+    float dy =
+      a[i].y-y;
+
+    if(
+      dx*dx+dy*dy
+      <
+      0.30*0.30
+    ) {
+
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
+// ================================================================
+// GRID VERIFICATION
+// ================================================================
+
+void verifyGrid() {
+
+  /*
+     Independent grid verification.
+     This is NOT replacing GA.
+
+     It checks the entire domain numerically
+     and catches boundary optima.
+  */
+
+  int N = 71;
+
+  gridMaxZ = -1e30;
+  gridMinZ = 1e30;
+
+  for(int i=0;i<N;i++) {
+
+    float x =
+      map(
+        i,
+        0,
+        N-1,
+        XMIN,
+        XMAX
+      );
+
+    for(int j=0;j<N;j++) {
+
+      float y =
+        map(
+          j,
+          0,
+          N-1,
+          YMIN,
+          YMAX
+        );
+
+      float z =
+        functionValue(
+          functionID,
+          x,
+          y
+        );
+
+      if(z>gridMaxZ) {
+
+        gridMaxZ=z;
+        gridMaxX=x;
+        gridMaxY=y;
+      }
+
+      if(z<gridMinZ) {
+
+        gridMinZ=z;
+        gridMinX=x;
+        gridMinY=y;
+      }
+    }
+  }
+
+  /*
+     Compare grid candidates with
+     GA archive.
+  */
+
+  globalMaxZ = gridMaxZ;
+  globalMaxX = gridMaxX;
+  globalMaxY = gridMaxY;
+
+  globalMinZ = gridMinZ;
+  globalMinX = gridMinX;
+  globalMinY = gridMinY;
+
+  for(int i=0;i<maxCount;i++) {
+
+    if(
+      maxima[i].z >
+      globalMaxZ
+    ) {
+
+      globalMaxZ =
+        maxima[i].z;
+
+      globalMaxX =
+        maxima[i].x;
+
+      globalMaxY =
+        maxima[i].y;
+    }
+  }
+
+  for(int i=0;i<minCount;i++) {
+
+    if(
+      minima[i].z <
+      globalMinZ
+    ) {
+
+      globalMinZ =
+        minima[i].z;
+
+      globalMinX =
+        minima[i].x;
+
+      globalMinY =
+        minima[i].y;
+    }
+  }
+}
+
+
+// ================================================================
+// STATIONARY DETECTION
+// ================================================================
+
+void detectStationaryPoints() {
+
+  int N = 55;
+
+  for(int i=1;i<N-1;i++) {
+
+    float x =
+      map(
+        i,
+        0,
+        N-1,
+        XMIN,
+        XMAX
+      );
+
+    for(int j=1;j<N-1;j++) {
+
+      float y =
+        map(
+          j,
+          0,
+          N-1,
+          YMIN,
+          YMAX
+        );
+
+      if(isLocalMaximumCandidate(x,y)) {
+
+        addMaximum(
+          x,y,
+          functionValue(
+            functionID,x,y
+          )
+        );
+      }
+
+      if(isLocalMinimumCandidate(x,y)) {
+
+        addMinimum(
+          x,y,
+          functionValue(
+            functionID,x,y
+          )
+        );
+      }
+
+      if(isSaddleCandidate(x,y)) {
+
+        addSaddle(
+          x,y,
+          functionValue(
+            functionID,x,y
+          )
+        );
+      }
+    }
+  }
+}
+
+
+// ================================================================
+// 3D DRAW
+// ================================================================
+
+void draw3D() {
+
+  pushMatrix();
+
+  translate(
+    width*0.50,
+    height*0.58
+  );
+
+  scale(zoom);
+
+  rotateX(rotX);
+  rotateY(rotY);
+
+  drawSurface();
+  drawGrid3D();
+  drawPopulation();
+
+  drawFeatures(
+    maxima,
+    maxCount,
+    SEARCH_MAX
+  );
+
+  drawFeatures(
+    minima,
+    minCount,
+    SEARCH_MIN
+  );
+
+  drawFeatures(
+    saddles,
+    saddleCount,
+    SEARCH_SADDLE
+  );
+
+  popMatrix();
+}
+
+
+// ================================================================
+// SURFACE DRAW
+// ================================================================
+
+void drawSurface() {
+
+  for(int i=0;i<NX-1;i++) {
+
+    for(int j=0;j<NY-1;j++) {
+
+      float x1 =
+        map(i,0,NX-1,XMIN,XMAX);
+
+      float x2 =
+        map(i+1,0,NX-1,XMIN,XMAX);
+
+      float y1 =
+        map(j,0,NY-1,YMIN,YMAX);
+
+      float y2 =
+        map(j+1,0,NY-1,YMIN,YMAX);
+
+      float z11 = surfaceZ[i][j];
+      float z21 = surfaceZ[i+1][j];
+      float z22 = surfaceZ[i+1][j+1];
+      float z12 = surfaceZ[i][j+1];
+
+      beginShape(TRIANGLES);
+
+      noStroke();
+
+      fill(surfaceColor(z11));
+
+      vertex(
+        map(x1,XMIN,XMAX,-260,260),
+        map(y1,YMIN,YMAX,-260,260),
+        z11*ZSCALE
+      );
+
+      vertex(
+        map(x2,XMIN,XMAX,-260,260),
+        map(y1,YMIN,YMAX,-260,260),
+        z21*ZSCALE
+      );
+
+      vertex(
+        map(x2,XMIN,XMAX,-260,260),
+        map(y2,YMIN,YMAX,-260,260),
+        z22*ZSCALE
+      );
+
+      fill(surfaceColor(z22));
+
+      vertex(
+        map(x1,XMIN,XMAX,-260,260),
+        map(y1,YMIN,YMAX,-260,260),
+        z11*ZSCALE
+      );
+
+      vertex(
+        map(x2,XMIN,XMAX,-260,260),
+        map(y2,YMIN,YMAX,-260,260),
+        z22*ZSCALE
+      );
+
+      vertex(
+        map(x1,XMIN,XMAX,-260,260),
+        map(y2,YMIN,YMAX,-260,260),
+        z12*ZSCALE
+      );
+
+      endShape();
+    }
+  }
+}
+
+
+// ================================================================
+// SURFACE COLOR
+// ================================================================
+
+int surfaceColor(float z) {
+
+  float t =
+    constrain(
+      map(z,-10,10,0,1),
+      0,
+      1
+    );
+
+  return color(
+    30+220*t,
+    80+100*(1.0-abs(t-0.5)*2.0),
+    230-170*t
+  );
+}
+
+
+// ================================================================
+// GRID DRAW
+// ================================================================
+
+void drawGrid3D() {
+
+  stroke(80,100,120,110);
+
+  for(int i=0;i<=10;i++) {
+
+    float p =
+      map(i,0,10,-260,260);
+
+    line(
+      p,-260,0,
+      p,260,0
+    );
+
+    line(
+      -260,p,0,
+      260,p,0
+    );
+  }
+}
+
+
+// ================================================================
+// POPULATION DRAW
+// ================================================================
+
+void drawPopulation() {
+
+  for(int i=0;i<POPULATION_SIZE;i++) {
+
+    Individual p =
+      population[i];
+
+    float px =
+      map(p.x,XMIN,XMAX,-260,260);
+
+    float py =
+      map(p.y,YMIN,YMAX,-260,260);
+
+    float pz =
+      functionValue(
+        functionID,
+        p.x,
+        p.y
+      )*ZSCALE;
+
+    pushMatrix();
+
+    translate(
+      px,
+      py,
+      pz+7
+    );
+
+    fill(255);
+    stroke(255);
+
+    sphere(3.5);
+
+    popMatrix();
+  }
+}
+
+
+// ================================================================
+// FEATURE DRAW
+// ================================================================
+
+void drawFeatures(
+  Feature[] list,
+  int count,
+  int type
+) {
+
+  for(int i=0;i<count;i++) {
+
+    Feature p =
+      list[i];
+
+    float px =
+      map(p.x,XMIN,XMAX,-260,260);
+
+    float py =
+      map(p.y,YMIN,YMAX,-260,260);
+
+    float pz =
+      p.z*ZSCALE;
+
+    pushMatrix();
+
+    translate(
+      px,
+      py,
+      pz+16
+    );
+
+    if(type==SEARCH_MAX) {
+
+      fill(255,60,60);
+      stroke(255);
+
+    } else if(type==SEARCH_MIN) {
+
+      fill(70,100,255);
+      stroke(255);
+
+    } else {
+
+      fill(255,200,30);
+      stroke(255);
+    }
+
+    sphere(11);
+
+    popMatrix();
+  }
+}
+
+
+// ================================================================
+// UI
+// ================================================================
+
+void drawUI() {
+
+  hint(DISABLE_DEPTH_TEST);
+
+  fill(5,8,16,240);
+
+  rect(
+    0,
+    0,
+    width,
+    140
+  );
+
+  fill(255);
+
+  textSize(22);
+
+  text(
+    "100-FUNCTION GA EXTREMA EXPLORER",
+    18,
+    12
+  );
+
+  textSize(15);
+
+  text(
+    functionName(functionID),
+    18,
+    40
+  );
+
+  text(
+    "Mode: "+
+    modeName(),
+    18,
+    63
+  );
+
+  text(
+    "Gen: "+generation+
+    "   Maxima: "+maxCount+
+    "   Minima: "+minCount+
+    "   Saddles: "+saddleCount,
+    18,
+    85
+  );
+
+  text(
+    "GLOBAL MAX = "+
+    nf(globalMaxZ,0,4)+
+    "  ("+
+    nf(globalMaxX,0,2)+
+    ","+
+    nf(globalMaxY,0,2)+")",
+    18,
+    106
+  );
+
+  text(
+    "GLOBAL MIN = "+
+    nf(globalMinZ,0,4)+
+    "  ("+
+    nf(globalMinX,0,2)+
+    ","+
+    nf(globalMinY,0,2)+")",
+    18,
+    124
+  );
+
+  drawButton(700,15,90,38,"MAX");
+  drawButton(800,15,90,38,"MIN");
+  drawButton(900,15,110,38,"SADDLE");
+
+  drawButton(700,60,90,38,"NEXT");
+  drawButton(800,60,90,38,"RESET");
+  drawButton(900,60,110,38,
+    autoRun?"AUTO":"STOP"
+  );
+
+  drawButton(1020,15,100,38,"PREV F");
+  drawButton(1020,60,100,38,"NEXT F");
+
+  hint(ENABLE_DEPTH_TEST);
+}
+
+
+// ================================================================
+// MODE NAME
+// ================================================================
+
+String modeName() {
+
+  if(searchMode==SEARCH_MAX) {
+    return "MAXIMUM";
+  }
+
+  if(searchMode==SEARCH_MIN) {
+    return "MINIMUM";
+  }
+
+  return "SADDLE";
+}
+
+
+// ================================================================
+// BUTTON
+// ================================================================
+
+void drawButton(
+  float x,
+  float y,
+  float w,
+  float h,
+  String label
+) {
+
+  fill(30,40,60);
+  stroke(110,130,160);
+
+  rect(
+    x,y,w,h,8
+  );
+
+  fill(255);
+
+  textAlign(
+    CENTER,
+    CENTER
+  );
+
+  textSize(13);
+
+  text(
+    label,
+    x+w*0.5,
+    y+h*0.5
+  );
+
+  textAlign(
+    LEFT,
+    TOP
+  );
+}
+
+
+// ================================================================
+// MOUSE PRESS / TOUCH PRESS
+// ================================================================
+
+void mousePressed() {
+
+  lastTouchX = mouseX;
+  lastTouchY = mouseY;
+
+  dragging = true;
+
+  buttonAction(
+    mouseX,
+    mouseY
+  );
+}
+
+
+// ================================================================
+// BUTTON ACTION
+// ================================================================
+
+void buttonAction(
+  float x,
+  float y
+) {
+
+  if(
+    x>700 && x<790 &&
+    y>15 && y<53
+  ) {
+
+    searchMode=SEARCH_MAX;
+    return;
+  }
+
+  if(
+    x>800 && x<890 &&
+    y>15 && y<53
+  ) {
+
+    searchMode=SEARCH_MIN;
+    return;
+  }
+
+  if(
+    x>900 && x<1010 &&
+    y>15 && y<53
+  ) {
+
+    searchMode=SEARCH_SADDLE;
+    return;
+  }
+
+  if(
+    x>700 && x<790 &&
+    y>60 && y<98
+  ) {
+
+    runGeneration();
+    return;
+  }
+
+  if(
+    x>800 && x<890 &&
+    y>60 && y<98
+  ) {
+
+    resetSearch();
+    return;
+  }
+
+  if(
+    x>900 && x<1010 &&
+    y>60 && y<98
+  ) {
+
+    autoRun=!autoRun;
+    return;
+  }
+
+  if(
+    x>1020 && x<1120 &&
+    y>15 && y<53
+  ) {
+
+    functionID--;
+
+    if(functionID<1)
+      functionID=100;
+
+    resetSearch();
+
+    return;
+  }
+
+  if(
+    x>1020 && x<1120 &&
+    y>60 && y<98
+  ) {
+
+    functionID++;
+
+    if(functionID>100)
+      functionID=1;
+
+    resetSearch();
+
+    return;
+  }
+}
+
+
+// ================================================================
+// DRAG
+// ================================================================
+
+void mouseDragged() {
+
+  float dx =
+    mouseX-lastTouchX;
+
+  float dy =
+    mouseY-lastTouchY;
+
+  rotY += dx*0.008;
+  rotX += dy*0.008;
+
+  rotX =
+    constrain(
+      rotX,
+      -1.45,
+      0.15
+    );
+
+  lastTouchX=mouseX;
+  lastTouchY=mouseY;
+}
+
+
+// ================================================================
+// RELEASE
+// ================================================================
+
+void mouseReleased() {
+
+  dragging=false;
+}
+
+
+// ================================================================
+// ANDROID MULTI-TOUCH
+// ================================================================
+
+public boolean surfaceTouchEvent(
+  MotionEvent event
+) {
+
+  int action =
+    event.getActionMasked();
+
+  int count =
+    event.getPointerCount();
+
+  if(count>=2) {
+
+    float x1 =
+      event.getX(0);
+
+    float y1 =
+      event.getY(0);
+
+    float x2 =
+      event.getX(1);
+
+    float y2 =
+      event.getY(1);
+
+    float d =
+      dist(x1,y1,x2,y2);
+
+    if(
+      action==
+      MotionEvent.ACTION_POINTER_DOWN
+    ) {
+
+      pinchDistance=d;
+    }
+
+    else if(
+      action==
+      MotionEvent.ACTION_MOVE
+      &&
+      pinchDistance>0
+    ) {
+
+      float change =
+        d-pinchDistance;
+
+      zoom *=
+        1.0+change*0.002;
+
+      zoom =
+        constrain(
+          zoom,
+          0.45,
+          2.5
+        );
+
+      pinchDistance=d;
+    }
+  }
+
+  if(
+    action==
+    MotionEvent.ACTION_UP
+    ||
+    action==
+    MotionEvent.ACTION_CANCEL
+  ) {
+
+    pinchDistance=-1;
+  }
+
+  return super.surfaceTouchEvent(event);
+}
+
+
+// ================================================================
+// RESET SEARCH
+// ================================================================
+
+void resetSearch() {
+
+  generation=0;
+
+  maxCount=0;
+  minCount=0;
+  saddleCount=0;
+
+  globalMaxZ=-1e30;
+  globalMinZ=1e30;
+
+  rotX=-0.72;
+  rotY=0.72;
+
+  zoom=1.0;
+
+  currentXForGaussian=0;
+  currentYForGaussian=0;
+
+  generateSurface();
+
+  initializePopulation();
+
+  verifyGrid();
+}
