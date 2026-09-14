@@ -1,0 +1,4125 @@
+/* =====================================================================
+   GENETIC ALGORITHM EXTREMUM EXPLORER
+   APDE / PROCESSING FOR ANDROID
+   FULL WORKING VERSION
+
+   ---------------------------------------------------------------
+   MODE 1
+       f(x) = x^(1/x)
+
+   MODE 2
+       POWER TOWER
+
+       T1(x) = x
+       T2(x) = x^x
+       T3(x) = x^(x^x)
+       T4(x) = x^(x^(x^x))
+       ...
+       Th(x) = x^(T(h-1,x))
+
+   DOMAIN
+       0.0001 <= x <= 10
+
+   ---------------------------------------------------------------
+   IMPORTANT NUMERICAL METHOD
+
+   We do NOT directly calculate enormous towers.
+
+       L = log10(T)
+
+   Because log10() is strictly increasing,
+
+       minimum T <=> minimum L
+       maximum T <=> maximum L
+
+   The renderer therefore works with log10 values.
+
+   ---------------------------------------------------------------
+   FEATURES
+
+   - Separate GA minimum population
+   - Separate GA maximum population
+   - Tournament selection
+   - Elitism
+   - Arithmetic crossover
+   - Gaussian mutation
+   - 1000 iterations
+   - Population graph
+   - Convergence graph
+   - Tower height slider
+   - Pause / Run / Step
+   - New run
+   - Reset
+   - Android touch controls
+   - Safe huge-number handling
+   - Bounded tower recurrence
+   - No huge recursion
+   - No 100000-loop-per-pixel calculation
+   ===================================================================== */
+
+
+/* =====================================================================
+   MODES
+   ===================================================================== */
+
+final int MODE_RECIPROCAL = 0;
+final int MODE_TOWER      = 1;
+
+int currentMode = MODE_RECIPROCAL;
+
+
+/* =====================================================================
+   GENETIC ALGORITHM PARAMETERS
+   ===================================================================== */
+
+final int POP_SIZE = 40;
+
+final int MAX_ITERATIONS = 1000;
+
+final double X_MIN = 0.0001;
+final double X_MAX = 10.0;
+
+final double CROSSOVER_RATE = 0.85;
+final double MUTATION_RATE  = 0.20;
+final double MUTATION_SIGMA = 0.30;
+
+final int TOURNAMENT_SIZE = 3;
+
+
+/* =====================================================================
+   POWER TOWER
+   ===================================================================== */
+
+int towerHeight = 2;
+
+final int MIN_HEIGHT = 1;
+final int MAX_HEIGHT = 100000;
+
+
+/* =====================================================================
+   SAFE LOG LIMITS
+   ===================================================================== */
+
+/*
+   We never allow displayed log-values to become Infinity.
+
+   300 means approximately:
+
+       10^300
+
+   which is already far beyond ordinary double precision.
+*/
+
+final double LOG_LIMIT = 300.0;
+
+
+/*
+   The recurrence is deliberately bounded.
+
+   This is NOT the tower height.
+
+   It is only the maximum number of numerical recurrence steps used
+   before using the stabilized value.
+*/
+final int MAX_TOWER_NUMERICAL_STEPS = 100;
+
+
+/*
+   Convergence tolerance.
+*/
+final double TOWER_TOLERANCE = 1e-10;
+
+
+/* =====================================================================
+   MINIMUM GA ARRAYS
+   ===================================================================== */
+
+double[] minPopulation =
+  new double[POP_SIZE];
+
+double[] minFitness =
+  new double[POP_SIZE];
+
+double[] minNextPopulation =
+  new double[POP_SIZE];
+
+
+/* =====================================================================
+   MAXIMUM GA ARRAYS
+   ===================================================================== */
+
+double[] maxPopulation =
+  new double[POP_SIZE];
+
+double[] maxFitness =
+  new double[POP_SIZE];
+
+double[] maxNextPopulation =
+  new double[POP_SIZE];
+
+
+/* =====================================================================
+   GLOBAL MINIMUM
+   ===================================================================== */
+
+double globalMinX;
+double globalMinScore;
+int globalMinIteration;
+
+
+/* =====================================================================
+   GLOBAL MAXIMUM
+   ===================================================================== */
+
+double globalMaxX;
+double globalMaxScore;
+int globalMaxIteration;
+
+
+/* =====================================================================
+   ITERATION CONTROL
+   ===================================================================== */
+
+int iteration = 0;
+
+boolean running  = true;
+boolean finished = false;
+
+int iterationDelay = 35;
+
+int lastIterationTime = 0;
+
+
+/* =====================================================================
+   HISTORY
+   ===================================================================== */
+
+double[] minHistory =
+  new double[MAX_ITERATIONS + 1];
+
+double[] maxHistory =
+  new double[MAX_ITERATIONS + 1];
+
+
+/* =====================================================================
+   GRAPH LAYOUT
+   ===================================================================== */
+
+float graphLeft;
+float graphRight;
+
+float graphTop;
+float graphBottom;
+
+float convergenceTop;
+float convergenceBottom;
+
+
+/* =====================================================================
+   SLIDER
+   ===================================================================== */
+
+float sliderLeft;
+float sliderRight;
+float sliderY;
+
+boolean draggingSlider = false;
+
+
+/* =====================================================================
+   BUTTON LAYOUT
+   ===================================================================== */
+
+float buttonY;
+float buttonH;
+float buttonW;
+float buttonGap;
+float buttonStartX;
+
+
+/* =====================================================================
+   TEXT
+   ===================================================================== */
+
+PFont uiFont;
+
+
+/* =====================================================================
+   SETTINGS
+   ===================================================================== */
+
+void settings() {
+
+  /*
+     Processing Android supports the P3D renderer with fullScreen().
+  */
+  fullScreen(P3D);
+}
+
+
+/* =====================================================================
+   SETUP
+   ===================================================================== */
+
+void setup() {
+
+  /*
+     Processing for Android recommends orientation() in setup().
+  */
+  orientation(LANDSCAPE);
+
+  /*
+     Basic rendering setup.
+  */
+  smooth();
+
+  /*
+     Create a readable Android font.
+  */
+  uiFont =
+    createFont(
+      "SansSerif",
+      32 * displayDensity
+      );
+
+  textFont(uiFont);
+
+  textAlign(LEFT, TOP);
+
+  calculateLayout();
+
+  resetGA();
+}
+
+
+/* =====================================================================
+   RESPONSIVE LAYOUT
+   ===================================================================== */
+
+void calculateLayout() {
+
+  graphLeft =
+    width * 0.055;
+
+  graphRight =
+    width * 0.965;
+
+  graphTop =
+    height * 0.205;
+
+  graphBottom =
+    height * 0.565;
+
+
+  convergenceTop =
+    height * 0.680;
+
+  convergenceBottom =
+    height * 0.850;
+
+
+  sliderLeft =
+    width * 0.42;
+
+  sliderRight =
+    width * 0.95;
+
+  sliderY =
+    height * 0.125;
+
+
+  buttonY =
+    height * 0.895;
+
+  buttonH =
+    height * 0.060;
+
+  buttonW =
+    width * 0.125;
+
+  buttonGap =
+    width * 0.010;
+
+  buttonStartX =
+    width * 0.035;
+}
+
+
+/* =====================================================================
+   DRAW
+   ===================================================================== */
+
+void draw() {
+
+  background(
+    7,
+    13,
+    23
+    );
+
+
+  /* ---------------------------------------------------------------
+     AUTOMATIC GA EVOLUTION
+     --------------------------------------------------------------- */
+
+  if (running && !finished) {
+
+    if (
+      millis() - lastIterationTime
+      >= iterationDelay
+      ) {
+
+      evolveOneIteration();
+
+      lastIterationTime =
+        millis();
+    }
+  }
+
+
+  /* ---------------------------------------------------------------
+     UI
+     --------------------------------------------------------------- */
+
+  drawHeader();
+
+  drawModeButtons();
+
+  drawHeightSlider();
+
+  drawFunctionGraph();
+
+  drawConvergenceGraph();
+
+  drawStatus();
+
+  drawButtons();
+}
+
+
+/* =====================================================================
+   OBJECTIVE EVALUATION
+   ===================================================================== */
+
+/*
+   IMPORTANT:
+
+   This function returns LOG10(objective).
+
+   Reciprocal:
+
+       f(x) = x^(1/x)
+
+       log10(f)
+       =
+       log10(x)/x
+
+   Tower:
+
+       log10(T_height(x))
+*/
+
+double evaluateScore(double x) {
+
+  x =
+    constrainDouble(
+      x,
+      X_MIN,
+      X_MAX
+      );
+
+
+  if (
+    currentMode ==
+    MODE_RECIPROCAL
+    ) {
+
+    return reciprocalLog10(x);
+  }
+
+
+  return towerLog10(
+    x,
+    towerHeight
+    );
+}
+
+
+/* =====================================================================
+   RECIPROCAL FUNCTION
+   ===================================================================== */
+
+/*
+   f(x) = x^(1/x)
+
+   log10(f) = log10(x)/x
+*/
+
+double reciprocalLog10(double x) {
+
+  x =
+    constrainDouble(
+      x,
+      X_MIN,
+      X_MAX
+      );
+
+  return
+    clampLog(
+      Math.log10(x) / x
+      );
+}
+
+
+/* =====================================================================
+   SAFE POWER TOWER LOG10
+   ===================================================================== */
+
+/*
+   T1 = x
+
+   Tn = x^(Tn-1)
+
+   Let:
+
+       L(n) = log10(Tn)
+
+   Then:
+
+       L(n)
+       =
+       log10(x) * 10^(L(n-1))
+
+   We never construct T directly.
+
+   ---------------------------------------------------------------
+   SPECIAL CASES
+   ---------------------------------------------------------------
+
+   x = 1
+
+       Tn = 1
+
+       log10(Tn) = 0
+
+   x > 1
+
+       Eventually the tower becomes very large.
+
+   0 < x < 1
+
+       The finite tower can approach a stable value or an
+       alternating two-cycle.
+
+   ---------------------------------------------------------------
+   PERFORMANCE
+
+   The method never loops towerHeight times.
+
+   It uses at most MAX_TOWER_NUMERICAL_STEPS iterations.
+
+   Thus:
+
+       h = 2
+       h = 100
+       h = 100000
+
+   are all computationally bounded.
+*/
+
+double towerLog10(
+  double x,
+  int height
+  ) {
+
+  x =
+    constrainDouble(
+      x,
+      X_MIN,
+      X_MAX
+      );
+
+
+  double baseLog =
+    Math.log10(x);
+
+
+  /* ---------------------------------------------------------------
+     HEIGHT 1
+     --------------------------------------------------------------- */
+
+  if (height <= 1) {
+
+    return
+      clampLog(
+        baseLog
+        );
+  }
+
+
+  /* ---------------------------------------------------------------
+     x = 1
+     --------------------------------------------------------------- */
+
+  if (
+    Math.abs(x - 1.0)
+    < 1e-12
+    ) {
+
+    return 0.0;
+  }
+
+
+  /*
+     We start from:
+
+         L1 = log10(x)
+  */
+
+  double L =
+    baseLog;
+
+
+  double oldL =
+    L;
+
+  double oldOldL =
+    L;
+
+
+  int usableHeight =
+    height;
+
+
+  /*
+     The first few levels should always be evaluated directly.
+
+     After that, the stabilized behavior is used.
+  */
+
+  int maxSteps =
+    minInt(
+      usableHeight - 1,
+      MAX_TOWER_NUMERICAL_STEPS
+      );
+
+
+  for (
+    int level = 2;
+    level <= maxSteps + 1;
+    level++
+    ) {
+
+
+    /* -------------------------------------------------------------
+       CALCULATE 10^L SAFELY
+       ------------------------------------------------------------- */
+
+    double powerPart;
+
+
+    if (L >= LOG_LIMIT) {
+
+      /*
+         For x > 1, once the exponent is already enormous,
+         the tower is beyond our display/search scale.
+      */
+
+      if (baseLog > 0.0) {
+
+        return LOG_LIMIT;
+      }
+
+
+      powerPart = 1.0;
+
+    } else if (L <= -LOG_LIMIT) {
+
+      powerPart = 0.0;
+
+    } else {
+
+      /*
+         Safe range for pow().
+      */
+
+      powerPart =
+        Math.pow(
+          10.0,
+          L
+          );
+    }
+
+
+    /* -------------------------------------------------------------
+       NEW LOG VALUE
+       ------------------------------------------------------------- */
+
+    double newL =
+      baseLog *
+      powerPart;
+
+
+    newL =
+      clampLog(
+        newL
+        );
+
+
+    /* -------------------------------------------------------------
+       DIVERGENCE
+       ------------------------------------------------------------- */
+
+    if (
+      newL >= LOG_LIMIT &&
+      baseLog > 0.0
+      ) {
+
+      return LOG_LIMIT;
+    }
+
+
+    /* -------------------------------------------------------------
+       FIXED POINT CONVERGENCE
+       ------------------------------------------------------------- */
+
+    if (
+      level > 8 &&
+      Math.abs(newL - L)
+      < TOWER_TOLERANCE
+      ) {
+
+      /*
+         If h is larger than the currently calculated levels,
+         the system is essentially stationary.
+      */
+
+      return newL;
+    }
+
+
+    /* -------------------------------------------------------------
+       TWO-CYCLE CONVERGENCE
+       ------------------------------------------------------------- */
+
+    if (level > 12) {
+
+      if (
+        Math.abs(newL - oldOldL)
+        < TOWER_TOLERANCE
+        ) {
+
+        /*
+           Sequence approximately:
+
+               A B A B A B ...
+
+           The remaining level parity determines whether the
+           final value is approximately A or B.
+        */
+
+        int remaining =
+          height - level;
+
+
+        if (
+          remaining % 2 == 0
+          ) {
+
+          return
+            clampLog(
+              newL
+              );
+
+        } else {
+
+          return
+            clampLog(
+              L
+              );
+        }
+      }
+    }
+
+
+    oldOldL =
+      oldL;
+
+    oldL =
+      L;
+
+    L =
+      newL;
+  }
+
+
+  /*
+     If the requested tower height is enormous and no exact
+     convergence criterion was detected, the bounded numerical
+     approximation is returned.
+
+     This keeps Android rendering responsive.
+  */
+
+  return
+    clampLog(
+      L
+      );
+}
+
+
+/* =====================================================================
+   CLAMP LOG
+   ===================================================================== */
+
+double clampLog(double value) {
+
+  if (
+    Double.isNaN(value)
+    ) {
+
+    return 0.0;
+  }
+
+
+  if (
+    Double.isInfinite(value)
+    ) {
+
+    if (value > 0.0) {
+
+      return LOG_LIMIT;
+
+    } else {
+
+      return -LOG_LIMIT;
+    }
+  }
+
+
+  if (
+    value > LOG_LIMIT
+    ) {
+
+    return LOG_LIMIT;
+  }
+
+
+  if (
+    value < -LOG_LIMIT
+    ) {
+
+    return -LOG_LIMIT;
+  }
+
+
+  return value;
+}
+
+
+/* =====================================================================
+   DOUBLE CONSTRAIN
+   ===================================================================== */
+
+double constrainDouble(
+  double value,
+  double low,
+  double high
+  ) {
+
+  if (value < low) {
+
+    return low;
+  }
+
+
+  if (value > high) {
+
+    return high;
+  }
+
+
+  return value;
+}
+
+
+/* =====================================================================
+   INTEGER MIN
+   ===================================================================== */
+
+int minInt(
+  int a,
+  int b
+  ) {
+
+  return
+    a < b
+    ? a
+    : b;
+}
+
+
+/* =====================================================================
+   RESET GA
+   ===================================================================== */
+
+void resetGA() {
+
+  iteration = 0;
+
+  running = true;
+
+  finished = false;
+
+
+  globalMinX =
+    X_MIN;
+
+  globalMinScore =
+    Double.POSITIVE_INFINITY;
+
+  globalMinIteration =
+    0;
+
+
+  globalMaxX =
+    X_MIN;
+
+  globalMaxScore =
+    Double.NEGATIVE_INFINITY;
+
+  globalMaxIteration =
+    0;
+
+
+  for (
+    int i = 0;
+    i <= MAX_ITERATIONS;
+    i++
+    ) {
+
+    minHistory[i] =
+      Double.POSITIVE_INFINITY;
+
+    maxHistory[i] =
+      Double.NEGATIVE_INFINITY;
+  }
+
+
+  initializePopulations();
+
+
+  evaluateMinimumPopulation();
+
+  evaluateMaximumPopulation();
+
+
+  minHistory[0] =
+    globalMinScore;
+
+  maxHistory[0] =
+    globalMaxScore;
+
+
+  lastIterationTime =
+    millis();
+}
+
+
+/* =====================================================================
+   INITIALIZE POPULATIONS
+   ===================================================================== */
+
+void initializePopulations() {
+
+  for (
+    int i = 0;
+    i < POP_SIZE;
+    i++
+    ) {
+
+    minPopulation[i] =
+      randomDouble(
+        X_MIN,
+        X_MAX
+        );
+
+
+    maxPopulation[i] =
+      randomDouble(
+        X_MIN,
+        X_MAX
+        );
+
+
+    minFitness[i] =
+      evaluateScore(
+        minPopulation[i]
+        );
+
+
+    maxFitness[i] =
+      evaluateScore(
+        maxPopulation[i]
+        );
+  }
+}
+
+
+/* =====================================================================
+   RANDOM DOUBLE
+   ===================================================================== */
+
+double randomDouble(
+  double low,
+  double high
+  ) {
+
+  return
+    low +
+    Math.random() *
+    (high - low);
+}
+
+
+/* =====================================================================
+   EVALUATE MINIMUM POPULATION
+   ===================================================================== */
+
+void evaluateMinimumPopulation() {
+
+  for (
+    int i = 0;
+    i < POP_SIZE;
+    i++
+    ) {
+
+    minFitness[i] =
+      evaluateScore(
+        minPopulation[i]
+        );
+
+
+    if (
+      minFitness[i]
+      <
+      globalMinScore
+      ) {
+
+      globalMinScore =
+        minFitness[i];
+
+
+      globalMinX =
+        minPopulation[i];
+
+
+      globalMinIteration =
+        iteration;
+    }
+  }
+}
+
+
+/* =====================================================================
+   EVALUATE MAXIMUM POPULATION
+   ===================================================================== */
+
+void evaluateMaximumPopulation() {
+
+  for (
+    int i = 0;
+    i < POP_SIZE;
+    i++
+    ) {
+
+    maxFitness[i] =
+      evaluateScore(
+        maxPopulation[i]
+        );
+
+
+    if (
+      maxFitness[i]
+      >
+      globalMaxScore
+      ) {
+
+      globalMaxScore =
+        maxFitness[i];
+
+
+      globalMaxX =
+        maxPopulation[i];
+
+
+      globalMaxIteration =
+        iteration;
+    }
+  }
+}
+
+
+/* =====================================================================
+   ONE GA ITERATION
+   ===================================================================== */
+
+void evolveOneIteration() {
+
+  if (
+    iteration >=
+    MAX_ITERATIONS
+    ) {
+
+    finished =
+      true;
+
+    running =
+      false;
+
+    return;
+  }
+
+
+  evolveMinimumPopulation();
+
+  evolveMaximumPopulation();
+
+
+  iteration++;
+
+
+  evaluateMinimumPopulation();
+
+  evaluateMaximumPopulation();
+
+
+  minHistory[iteration] =
+    globalMinScore;
+
+  maxHistory[iteration] =
+    globalMaxScore;
+
+
+  if (
+    iteration >=
+    MAX_ITERATIONS
+    ) {
+
+    finished =
+      true;
+
+    running =
+      false;
+  }
+}
+
+
+/* =====================================================================
+   EVOLVE MINIMUM
+   ===================================================================== */
+
+void evolveMinimumPopulation() {
+
+  int eliteIndex =
+    findBestMinimumIndex();
+
+
+  /*
+     ELITISM
+  */
+
+  minNextPopulation[0] =
+    minPopulation[
+      eliteIndex
+      ];
+
+
+  /*
+     CREATE CHILDREN
+  */
+
+  for (
+    int i = 1;
+    i < POP_SIZE;
+    i++
+    ) {
+
+    double parentA =
+      minimumTournamentSelection();
+
+
+    double parentB =
+      minimumTournamentSelection();
+
+
+    double child;
+
+
+    /*
+       ARITHMETIC CROSSOVER
+    */
+
+    if (
+      Math.random()
+      <
+      CROSSOVER_RATE
+      ) {
+
+      double alpha =
+        Math.random();
+
+
+      child =
+        parentA +
+        alpha *
+        (parentB - parentA);
+
+    } else {
+
+      if (
+        Math.random()
+        <
+        0.5
+        ) {
+
+        child =
+          parentA;
+
+      } else {
+
+        child =
+          parentB;
+      }
+    }
+
+
+    /*
+       GAUSSIAN MUTATION
+    */
+
+    if (
+      Math.random()
+      <
+      MUTATION_RATE
+      ) {
+
+      child +=
+        gaussianRandom()
+        *
+        MUTATION_SIGMA;
+    }
+
+
+    /*
+       DOMAIN LIMIT
+    */
+
+    child =
+      constrainDouble(
+        child,
+        X_MIN,
+        X_MAX
+        );
+
+
+    minNextPopulation[i] =
+      child;
+  }
+
+
+  /*
+     COPY NEXT GENERATION
+  */
+
+  for (
+    int i = 0;
+    i < POP_SIZE;
+    i++
+    ) {
+
+    minPopulation[i] =
+      minNextPopulation[i];
+  }
+}
+
+
+/* =====================================================================
+   EVOLVE MAXIMUM
+   ===================================================================== */
+
+void evolveMaximumPopulation() {
+
+  int eliteIndex =
+    findBestMaximumIndex();
+
+
+  /*
+     ELITISM
+  */
+
+  maxNextPopulation[0] =
+    maxPopulation[
+      eliteIndex
+      ];
+
+
+  /*
+     CREATE CHILDREN
+  */
+
+  for (
+    int i = 1;
+    i < POP_SIZE;
+    i++
+    ) {
+
+    double parentA =
+      maximumTournamentSelection();
+
+
+    double parentB =
+      maximumTournamentSelection();
+
+
+    double child;
+
+
+    /*
+       ARITHMETIC CROSSOVER
+    */
+
+    if (
+      Math.random()
+      <
+      CROSSOVER_RATE
+      ) {
+
+      double alpha =
+        Math.random();
+
+
+      child =
+        parentA +
+        alpha *
+        (parentB - parentA);
+
+    } else {
+
+      if (
+        Math.random()
+        <
+        0.5
+        ) {
+
+        child =
+          parentA;
+
+      } else {
+
+        child =
+          parentB;
+      }
+    }
+
+
+    /*
+       MUTATION
+    */
+
+    if (
+      Math.random()
+      <
+      MUTATION_RATE
+      ) {
+
+      child +=
+        gaussianRandom()
+        *
+        MUTATION_SIGMA;
+    }
+
+
+    /*
+       DOMAIN LIMIT
+    */
+
+    child =
+      constrainDouble(
+        child,
+        X_MIN,
+        X_MAX
+        );
+
+
+    maxNextPopulation[i] =
+      child;
+  }
+
+
+  /*
+     COPY NEXT GENERATION
+  */
+
+  for (
+    int i = 0;
+    i < POP_SIZE;
+    i++
+    ) {
+
+    maxPopulation[i] =
+      maxNextPopulation[i];
+  }
+}
+
+
+/* =====================================================================
+   GAUSSIAN RANDOM
+   ===================================================================== */
+
+double gaussianRandom() {
+
+  double u1 =
+    Math.random();
+
+  double u2 =
+    Math.random();
+
+
+  if (
+    u1 < 1e-12
+    ) {
+
+    u1 =
+      1e-12;
+  }
+
+
+  return
+    Math.sqrt(
+      -2.0 *
+      Math.log(u1)
+      )
+    *
+    Math.cos(
+      TWO_PI *
+      u2
+      );
+}
+
+
+/* =====================================================================
+   TOURNAMENT SELECTION - MINIMUM
+   ===================================================================== */
+
+double minimumTournamentSelection() {
+
+  int best =
+    int(
+      random(POP_SIZE)
+      );
+
+
+  for (
+    int i = 1;
+    i < TOURNAMENT_SIZE;
+    i++
+    ) {
+
+    int candidate =
+      int(
+        random(POP_SIZE)
+        );
+
+
+    if (
+      minFitness[candidate]
+      <
+      minFitness[best]
+      ) {
+
+      best =
+        candidate;
+    }
+  }
+
+
+  return
+    minPopulation[best];
+}
+
+
+/* =====================================================================
+   TOURNAMENT SELECTION - MAXIMUM
+   ===================================================================== */
+
+double maximumTournamentSelection() {
+
+  int best =
+    int(
+      random(POP_SIZE)
+      );
+
+
+  for (
+    int i = 1;
+    i < TOURNAMENT_SIZE;
+    i++
+    ) {
+
+    int candidate =
+      int(
+        random(POP_SIZE)
+        );
+
+
+    if (
+      maxFitness[candidate]
+      >
+      maxFitness[best]
+      ) {
+
+      best =
+        candidate;
+    }
+  }
+
+
+  return
+    maxPopulation[best];
+}
+
+
+/* =====================================================================
+   FIND BEST MINIMUM
+   ===================================================================== */
+
+int findBestMinimumIndex() {
+
+  int index =
+    0;
+
+
+  for (
+    int i = 1;
+    i < POP_SIZE;
+    i++
+    ) {
+
+    if (
+      minFitness[i]
+      <
+      minFitness[index]
+      ) {
+
+      index =
+        i;
+    }
+  }
+
+
+  return index;
+}
+
+
+/* =====================================================================
+   FIND BEST MAXIMUM
+   ===================================================================== */
+
+int findBestMaximumIndex() {
+
+  int index =
+    0;
+
+
+  for (
+    int i = 1;
+    i < POP_SIZE;
+    i++
+    ) {
+
+    if (
+      maxFitness[i]
+      >
+      maxFitness[index]
+      ) {
+
+      index =
+        i;
+    }
+  }
+
+
+  return index;
+}
+
+
+/* =====================================================================
+   HEADER
+   ===================================================================== */
+
+void drawHeader() {
+
+  fill(245);
+
+  textSize(
+    width * 0.020
+    );
+
+
+  text(
+    "GENETIC ALGORITHM EXTREMUM EXPLORER",
+    width * 0.030,
+    height * 0.018
+    );
+
+
+  fill(150, 215, 255);
+
+  textSize(
+    width * 0.011
+    );
+
+
+  if (
+    currentMode ==
+    MODE_RECIPROCAL
+    ) {
+
+    text(
+      "f(x) = x^(1/x)    |    DOMAIN [0.0001, 10]",
+      width * 0.030,
+      height * 0.067
+      );
+
+  } else {
+
+    text(
+      "POWER TOWER    |    T(h,x) = x^(T(h-1,x))",
+      width * 0.030,
+      height * 0.067
+      );
+  }
+}
+
+
+/* =====================================================================
+   MODE BUTTONS
+   ===================================================================== */
+
+void drawModeButtons() {
+
+  float y =
+    height * 0.090;
+
+  float h =
+    height * 0.045;
+
+  float w =
+    width * 0.155;
+
+
+  drawSmallButton(
+    width * 0.030,
+    y,
+    w,
+    h,
+    "x^(1/x)",
+    currentMode ==
+    MODE_RECIPROCAL
+    );
+
+
+  drawSmallButton(
+    width * 0.195,
+    y,
+    w,
+    h,
+    "POWER TOWER",
+    currentMode ==
+    MODE_TOWER
+    );
+}
+
+
+/* =====================================================================
+   SMALL BUTTON
+   ===================================================================== */
+
+void drawSmallButton(
+  float x,
+  float y,
+  float w,
+  float h,
+  String label,
+  boolean selected
+  ) {
+
+  if (selected) {
+
+    fill(
+      45,
+      95,
+      135
+      );
+
+  } else {
+
+    fill(
+      23,
+      38,
+      56
+      );
+  }
+
+
+  stroke(
+    90,
+    130,
+    165
+    );
+
+  strokeWeight(2);
+
+
+  rect(
+    x,
+    y,
+    w,
+    h,
+    8
+    );
+
+
+  fill(240);
+
+  textAlign(
+    CENTER,
+    CENTER
+    );
+
+  textSize(
+    width * 0.0085
+    );
+
+
+  text(
+    label,
+    x + w * 0.5,
+    y + h * 0.5
+    );
+
+
+  textAlign(
+    LEFT,
+    TOP
+    );
+}
+
+
+/* =====================================================================
+   HEIGHT SLIDER
+   ===================================================================== */
+
+void drawHeightSlider() {
+
+  if (
+    currentMode !=
+    MODE_TOWER
+    ) {
+
+    return;
+  }
+
+
+  fill(220);
+
+  textSize(
+    width * 0.0085
+    );
+
+
+  text(
+    "TOWER HEIGHT",
+    sliderLeft,
+    sliderY - height * 0.030
+    );
+
+
+  /*
+     TRACK
+  */
+
+  stroke(
+    80,
+    110,
+    140
+    );
+
+  strokeWeight(5);
+
+
+  line(
+    sliderLeft,
+    sliderY,
+    sliderRight,
+    sliderY
+    );
+
+
+  /*
+     LABELS
+  */
+
+  fill(160);
+
+  text(
+    "1",
+    sliderLeft,
+    sliderY + height * 0.018
+    );
+
+
+  text(
+    "100000",
+    sliderRight - width * 0.045,
+    sliderY + height * 0.018
+    );
+
+
+  /*
+     LOGARITHMIC SLIDER POSITION
+  */
+
+  float normalized =
+    (float)
+    (
+      Math.log(
+        towerHeight
+        )
+      /
+      Math.log(
+        MAX_HEIGHT
+        )
+    );
+
+
+  normalized =
+    constrain(
+      normalized,
+      0.0,
+      1.0
+      );
+
+
+  float knobX =
+    lerp(
+      sliderLeft,
+      sliderRight,
+      normalized
+      );
+
+
+  noStroke();
+
+  fill(
+    80,
+    210,
+    255
+    );
+
+
+  ellipse(
+    knobX,
+    sliderY,
+    width * 0.020,
+    width * 0.020
+    );
+
+
+  /*
+     HEIGHT TEXT
+  */
+
+  fill(245);
+
+  textSize(
+    width * 0.011
+    );
+
+
+  text(
+    "h = " + towerHeight,
+    width * 0.345,
+    sliderY - height * 0.030
+    );
+
+
+  fill(
+    140,
+    210,
+    255
+    );
+
+
+  textSize(
+    width * 0.0075
+    );
+
+
+  if (
+    towerHeight == 1
+    ) {
+
+    text(
+      "T1(x) = x",
+      width * 0.345,
+      sliderY + height * 0.015
+      );
+
+  } else if (
+    towerHeight == 2
+    ) {
+
+    text(
+      "T2(x) = x^x",
+      width * 0.345,
+      sliderY + height * 0.015
+      );
+
+  } else if (
+    towerHeight == 3
+    ) {
+
+    text(
+      "T3(x) = x^(x^x)",
+      width * 0.345,
+      sliderY + height * 0.015
+      );
+
+  } else {
+
+    text(
+      "T" +
+      towerHeight +
+      "(x) = power tower",
+      width * 0.345,
+      sliderY + height * 0.015
+      );
+  }
+}
+
+
+/* =====================================================================
+   FUNCTION GRAPH
+   ===================================================================== */
+
+void drawFunctionGraph() {
+
+  double[] bounds =
+    calculateDisplayBounds();
+
+
+  double yMin =
+    bounds[0];
+
+  double yMax =
+    bounds[1];
+
+
+  /*
+     PANEL
+  */
+
+  noFill();
+
+  stroke(
+    70,
+    90,
+    115
+    );
+
+  strokeWeight(2);
+
+
+  rect(
+    graphLeft,
+    graphTop,
+    graphRight - graphLeft,
+    graphBottom - graphTop
+    );
+
+
+  /*
+     GRID
+  */
+
+  stroke(
+    32,
+    48,
+    67
+    );
+
+  strokeWeight(1);
+
+
+  for (
+    int i = 0;
+    i <= 10;
+    i++
+    ) {
+
+    float px =
+      map(
+        i,
+        0,
+        10,
+        graphLeft,
+        graphRight
+        );
+
+
+    line(
+      px,
+      graphTop,
+      px,
+      graphBottom
+      );
+  }
+
+
+  for (
+    int j = 0;
+    j <= 6;
+    j++
+    ) {
+
+    double value =
+      yMin +
+      (
+        yMax - yMin
+      ) *
+      j /
+      6.0;
+
+
+    float py =
+      mapDoubleToPixel(
+        value,
+        yMin,
+        yMax,
+        graphBottom,
+        graphTop
+        );
+
+
+    line(
+      graphLeft,
+      py,
+      graphRight,
+      py
+      );
+  }
+
+
+  /*
+     FUNCTION
+  */
+
+  noFill();
+
+  stroke(
+    70,
+    220,
+    255
+    );
+
+  strokeWeight(3);
+
+
+  beginShape();
+
+
+  /*
+     301 samples are enough for Android.
+  */
+
+  for (
+    int i = 0;
+    i <= 300;
+    i++
+    ) {
+
+    double x =
+      X_MIN +
+      (
+        X_MAX - X_MIN
+      )
+      *
+      i /
+      300.0;
+
+
+    double score =
+      evaluateScore(x);
+
+
+    float px =
+      map(
+        i,
+        0,
+        300,
+        graphLeft,
+        graphRight
+        );
+
+
+    float py =
+      mapDoubleToPixel(
+        score,
+        yMin,
+        yMax,
+        graphBottom,
+        graphTop
+        );
+
+
+    vertex(
+      px,
+      py
+      );
+  }
+
+
+  endShape();
+
+
+  /*
+     MINIMUM POPULATION
+  */
+
+  for (
+    int i = 0;
+    i < POP_SIZE;
+    i++
+    ) {
+
+    drawPopulationPoint(
+      minPopulation[i],
+      255,
+      170,
+      70,
+      yMin,
+      yMax
+      );
+  }
+
+
+  /*
+     MAXIMUM POPULATION
+  */
+
+  for (
+    int i = 0;
+    i < POP_SIZE;
+    i++
+    ) {
+
+    drawPopulationPoint(
+      maxPopulation[i],
+      80,
+      210,
+      255,
+      yMin,
+      yMax
+      );
+  }
+
+
+  /*
+     GA MINIMUM
+  */
+
+  drawBestMarker(
+    globalMinX,
+    globalMinScore,
+    "GA MIN",
+    255,
+    190,
+    70,
+    yMin,
+    yMax
+    );
+
+
+  /*
+     GA MAXIMUM
+  */
+
+  drawBestMarker(
+    globalMaxX,
+    globalMaxScore,
+    "GA MAX",
+    80,
+    210,
+    255,
+    yMin,
+    yMax
+    );
+
+
+  /*
+     AXIS TEXT
+  */
+
+  fill(185);
+
+  textSize(
+    width * 0.0085
+    );
+
+
+  text(
+    "x",
+    graphRight + 5,
+    graphBottom - 8
+    );
+
+
+  if (
+    currentMode ==
+    MODE_RECIPROCAL
+    ) {
+
+    text(
+      "log10(f)",
+      graphLeft - 55,
+      graphTop - 5
+      );
+
+  } else {
+
+    text(
+      "log10(T)",
+      graphLeft - 65,
+      graphTop - 5
+      );
+  }
+
+
+  /*
+     X LABELS
+  */
+
+  for (
+    int i = 0;
+    i <= 10;
+    i++
+    ) {
+
+    float px =
+      map(
+        i,
+        0,
+        10,
+        graphLeft,
+        graphRight
+        );
+
+
+    text(
+      str(i),
+      px - 4,
+      graphBottom + 5
+      );
+  }
+
+
+  /*
+     Y LABELS
+  */
+
+  for (
+    int j = 0;
+    j <= 6;
+    j++
+    ) {
+
+    double value =
+      yMin +
+      (
+        yMax - yMin
+      )
+      *
+      j /
+      6.0;
+
+
+    float py =
+      mapDoubleToPixel(
+        value,
+        yMin,
+        yMax,
+        graphBottom,
+        graphTop
+        );
+
+
+    text(
+      formatAxisNumber(value),
+      graphLeft - width * 0.055,
+      py - 6
+      );
+  }
+
+
+  /*
+     LEGEND
+  */
+
+  fill(
+    255,
+    170,
+    70
+    );
+
+
+  text(
+    "ORANGE = MIN GA",
+    graphLeft,
+    graphBottom + height * 0.025
+    );
+
+
+  fill(
+    80,
+    210,
+    255
+    );
+
+
+  text(
+    "BLUE = MAX GA",
+    graphLeft + width * 0.18,
+    graphBottom + height * 0.025
+    );
+
+
+  fill(
+    70,
+    220,
+    255
+    );
+
+
+  if (
+    currentMode ==
+    MODE_RECIPROCAL
+    ) {
+
+    text(
+      "CYAN = x^(1/x)",
+      graphLeft + width * 0.36,
+      graphBottom + height * 0.025
+      );
+
+  } else {
+
+    text(
+      "CYAN = POWER TOWER",
+      graphLeft + width * 0.36,
+      graphBottom + height * 0.025
+      );
+  }
+}
+
+
+/* =====================================================================
+   DISPLAY BOUNDS
+   ===================================================================== */
+
+double[] calculateDisplayBounds() {
+
+  /*
+     ---------------------------------------------------------------
+     RECIPROCAL MODE
+     ---------------------------------------------------------------
+
+     We display log10(f), not f itself.
+
+     f(x) = x^(1/x)
+
+     As x -> 0+,
+
+         f(x) -> 0
+
+     and therefore
+
+         log10(f) -> -infinity
+
+     so we safely display approximately -4 to +0.5.
+  */
+
+  if (
+    currentMode ==
+    MODE_RECIPROCAL
+    ) {
+
+    return new double[] {
+      -4.0,
+      0.6
+    };
+  }
+
+
+  /*
+     ---------------------------------------------------------------
+     TOWER MODE
+     ---------------------------------------------------------------
+  */
+
+  double minValue =
+    Double.POSITIVE_INFINITY;
+
+
+  double maxValue =
+    Double.NEGATIVE_INFINITY;
+
+
+  /*
+     Reduced sampling for Android performance.
+  */
+
+  for (
+    int i = 0;
+    i <= 150;
+    i++
+    ) {
+
+    double x =
+      X_MIN +
+      (
+        X_MAX - X_MIN
+      )
+      *
+      i /
+      150.0;
+
+
+    double value =
+      evaluateScore(x);
+
+
+    if (
+      value <
+      minValue
+      ) {
+
+      minValue =
+        value;
+    }
+
+
+    if (
+      value >
+      maxValue
+      ) {
+
+      maxValue =
+        value;
+    }
+  }
+
+
+  /*
+     Include current GA extrema.
+  */
+
+  if (
+    globalMinScore !=
+    Double.POSITIVE_INFINITY
+    ) {
+
+    minValue =
+      Math.min(
+        minValue,
+        globalMinScore
+        );
+  }
+
+
+  if (
+    globalMaxScore !=
+    Double.NEGATIVE_INFINITY
+    ) {
+
+    maxValue =
+      Math.max(
+        maxValue,
+        globalMaxScore
+        );
+  }
+
+
+  /*
+     Avoid zero-sized range.
+  */
+
+  if (
+    Math.abs(
+      maxValue - minValue
+      )
+    < 1e-8
+    ) {
+
+    maxValue += 1.0;
+
+    minValue -= 1.0;
+  }
+
+
+  /*
+     Margin.
+  */
+
+  double margin =
+    Math.max(
+      0.5,
+      (
+        maxValue - minValue
+      )
+      *
+      0.08
+      );
+
+
+  minValue -=
+    margin;
+
+  maxValue +=
+    margin;
+
+
+  minValue =
+    clampLog(
+      minValue
+      );
+
+  maxValue =
+    clampLog(
+      maxValue
+      );
+
+
+  return new double[] {
+    minValue,
+    maxValue
+  };
+}
+
+
+/* =====================================================================
+   MAP DOUBLE TO PIXEL
+   ===================================================================== */
+
+float mapDoubleToPixel(
+  double value,
+  double yMin,
+  double yMax,
+  float bottom,
+  float top
+  ) {
+
+  if (
+    Math.abs(
+      yMax - yMin
+      )
+    < 1e-15
+    ) {
+
+    return
+      (
+        bottom +
+        top
+      )
+      *
+      0.5;
+  }
+
+
+  double t =
+    (
+      value - yMin
+    )
+    /
+    (
+      yMax - yMin
+    );
+
+
+  t =
+    constrainDouble(
+      t,
+      0.0,
+      1.0
+      );
+
+
+  return
+    (float)
+    (
+      bottom +
+      (
+        top - bottom
+      )
+      *
+      t
+    );
+}
+
+
+/* =====================================================================
+   POPULATION POINT
+   ===================================================================== */
+
+void drawPopulationPoint(
+  double x,
+  int r,
+  int g,
+  int b,
+  double yMin,
+  double yMax
+  ) {
+
+  double score =
+    evaluateScore(x);
+
+
+  float px =
+    (float)
+    map(
+      (float)x,
+      (float)X_MIN,
+      (float)X_MAX,
+      graphLeft,
+      graphRight
+      );
+
+
+  float py =
+    mapDoubleToPixel(
+      score,
+      yMin,
+      yMax,
+      graphBottom,
+      graphTop
+      );
+
+
+  noStroke();
+
+
+  fill(
+    r,
+    g,
+    b
+    );
+
+
+  ellipse(
+    px,
+    py,
+    width * 0.008,
+    width * 0.008
+    );
+}
+
+
+/* =====================================================================
+   BEST MARKER
+   ===================================================================== */
+
+void drawBestMarker(
+  double x,
+  double score,
+  String label,
+  int r,
+  int g,
+  int b,
+  double yMin,
+  double yMax
+  ) {
+
+  float px =
+    (float)
+    map(
+      (float)x,
+      (float)X_MIN,
+      (float)X_MAX,
+      graphLeft,
+      graphRight
+      );
+
+
+  float py =
+    mapDoubleToPixel(
+      score,
+      yMin,
+      yMax,
+      graphBottom,
+      graphTop
+      );
+
+
+  stroke(
+    r,
+    g,
+    b
+    );
+
+  strokeWeight(3);
+
+
+  line(
+    px - width * 0.012,
+    py,
+    px + width * 0.012,
+    py
+    );
+
+
+  line(
+    px,
+    py - width * 0.012,
+    px,
+    py + width * 0.012
+    );
+
+
+  fill(
+    r,
+    g,
+    b
+    );
+
+
+  textSize(
+    width * 0.0075
+    );
+
+
+  text(
+    label +
+    " x=" +
+    nf(
+      (float)x,
+      1,
+      5
+      ),
+    px + 8,
+    py + 5
+    );
+}
+
+
+/* =====================================================================
+   CONVERGENCE GRAPH
+   ===================================================================== */
+
+void drawConvergenceGraph() {
+
+  noFill();
+
+
+  stroke(
+    70,
+    90,
+    115
+    );
+
+  strokeWeight(2);
+
+
+  rect(
+    graphLeft,
+    convergenceTop,
+    graphRight - graphLeft,
+    convergenceBottom -
+    convergenceTop
+    );
+
+
+  int last =
+    minInt(
+      iteration,
+      MAX_ITERATIONS
+      );
+
+
+  /*
+     HISTORY BOUNDS
+  */
+
+  double low =
+    Double.POSITIVE_INFINITY;
+
+
+  double high =
+    Double.NEGATIVE_INFINITY;
+
+
+  for (
+    int i = 0;
+    i <= last;
+    i++
+    ) {
+
+    if (
+      minHistory[i]
+      !=
+      Double.POSITIVE_INFINITY
+      ) {
+
+      low =
+        Math.min(
+          low,
+          minHistory[i]
+          );
+    }
+
+
+    if (
+      maxHistory[i]
+      !=
+      Double.NEGATIVE_INFINITY
+      ) {
+
+      high =
+        Math.max(
+          high,
+          maxHistory[i]
+          );
+    }
+  }
+
+
+  if (
+    low ==
+    Double.POSITIVE_INFINITY ||
+    high ==
+    Double.NEGATIVE_INFINITY
+    ) {
+
+    low =
+      -1.0;
+
+    high =
+      1.0;
+  }
+
+
+  if (
+    Math.abs(
+      high - low
+      )
+    < 1e-8
+    ) {
+
+    high += 1.0;
+
+    low -= 1.0;
+  }
+
+
+  double margin =
+    Math.max(
+      0.5,
+      (
+        high - low
+      )
+      *
+      0.12
+      );
+
+
+  low -=
+    margin;
+
+  high +=
+    margin;
+
+
+  low =
+    clampLog(low);
+
+  high =
+    clampLog(high);
+
+
+  /*
+     GRID
+  */
+
+  stroke(
+    32,
+    48,
+    67
+    );
+
+  strokeWeight(1);
+
+
+  for (
+    int j = 0;
+    j <= 4;
+    j++
+    ) {
+
+    double value =
+      low +
+      (
+        high - low
+      )
+      *
+      j /
+      4.0;
+
+
+    float py =
+      mapDoubleToPixel(
+        value,
+        low,
+        high,
+        convergenceBottom,
+        convergenceTop
+        );
+
+
+    line(
+      graphLeft,
+      py,
+      graphRight,
+      py
+      );
+  }
+
+
+  /*
+     MIN HISTORY
+  */
+
+  stroke(
+    255,
+    170,
+    70
+    );
+
+  strokeWeight(3);
+
+  noFill();
+
+
+  beginShape();
+
+
+  for (
+    int i = 0;
+    i <= last;
+    i++
+    ) {
+
+    if (
+      minHistory[i]
+      ==
+      Double.POSITIVE_INFINITY
+      ) {
+
+      continue;
+    }
+
+
+    float px =
+      map(
+        i,
+        0,
+        MAX_ITERATIONS,
+        graphLeft,
+        graphRight
+        );
+
+
+    float py =
+      mapDoubleToPixel(
+        minHistory[i],
+        low,
+        high,
+        convergenceBottom,
+        convergenceTop
+        );
+
+
+    vertex(
+      px,
+      py
+      );
+  }
+
+
+  endShape();
+
+
+  /*
+     MAX HISTORY
+  */
+
+  stroke(
+    80,
+    210,
+    255
+    );
+
+  strokeWeight(3);
+
+  noFill();
+
+
+  beginShape();
+
+
+  for (
+    int i = 0;
+    i <= last;
+    i++
+    ) {
+
+    if (
+      maxHistory[i]
+      ==
+      Double.NEGATIVE_INFINITY
+      ) {
+
+      continue;
+    }
+
+
+    float px =
+      map(
+        i,
+        0,
+        MAX_ITERATIONS,
+        graphLeft,
+        graphRight
+        );
+
+
+    float py =
+      mapDoubleToPixel(
+        maxHistory[i],
+        low,
+        high,
+        convergenceBottom,
+        convergenceTop
+        );
+
+
+    vertex(
+      px,
+      py
+      );
+  }
+
+
+  endShape();
+
+
+  /*
+     TITLE
+  */
+
+  fill(235);
+
+
+  textSize(
+    width * 0.010
+    );
+
+
+  text(
+    "GA CONVERGENCE",
+    graphLeft,
+    convergenceTop -
+    height * 0.042
+    );
+
+
+  fill(
+    255,
+    170,
+    70
+    );
+
+
+  text(
+    "MIN",
+    graphLeft +
+    width * 0.18,
+    convergenceTop -
+    height * 0.042
+    );
+
+
+  fill(
+    80,
+    210,
+    255
+    );
+
+
+  text(
+    "MAX",
+    graphLeft +
+    width * 0.23,
+    convergenceTop -
+    height * 0.042
+    );
+
+
+  /*
+     AXIS LABELS
+  */
+
+  fill(165);
+
+  textSize(
+    width * 0.0075
+    );
+
+
+  text(
+    "0",
+    graphLeft,
+    convergenceBottom + 5
+    );
+
+
+  text(
+    "1000",
+    graphRight - width * 0.030,
+    convergenceBottom + 5
+    );
+
+
+  text(
+    formatAxisNumber(high),
+    graphLeft - width * 0.060,
+    convergenceTop - 4
+    );
+
+
+  text(
+    formatAxisNumber(low),
+    graphLeft - width * 0.060,
+    convergenceBottom - 6
+    );
+}
+
+
+/* =====================================================================
+   STATUS PANEL
+   ===================================================================== */
+
+void drawStatus() {
+
+  float sx =
+    width * 0.57;
+
+
+  float sy =
+    height * 0.018;
+
+
+  /*
+     ITERATION
+  */
+
+  fill(245);
+
+  textSize(
+    width * 0.009
+    );
+
+
+  text(
+    "ITERATION " +
+    iteration +
+    " / " +
+    MAX_ITERATIONS,
+    sx,
+    sy
+    );
+
+
+  /*
+     FUNCTION
+  */
+
+  fill(
+    150,
+    210,
+    255
+    );
+
+
+  if (
+    currentMode ==
+    MODE_RECIPROCAL
+    ) {
+
+    text(
+      "FUNCTION : x^(1/x)",
+      sx,
+      sy + height * 0.028
+      );
+
+  } else {
+
+    text(
+      "FUNCTION : POWER TOWER",
+      sx,
+      sy + height * 0.028
+      );
+
+
+    text(
+      "HEIGHT : " +
+      towerHeight,
+      sx,
+      sy + height * 0.052
+      );
+  }
+
+
+  /*
+     GLOBAL MINIMUM
+  */
+
+  fill(
+    255,
+    180,
+    70
+    );
+
+
+  text(
+    "GLOBAL MINIMUM",
+    sx,
+    sy + height * 0.080
+    );
+
+
+  fill(230);
+
+
+  text(
+    "x = " +
+    nf(
+      (float)globalMinX,
+      1,
+      6
+      ),
+    sx,
+    sy + height * 0.103
+    );
+
+
+  text(
+    "log10(f) = " +
+    formatScientific(
+      globalMinScore
+      ),
+    sx,
+    sy + height * 0.126
+    );
+
+
+  text(
+    "f(x) = " +
+    formatFunctionValue(
+      globalMinScore
+      ),
+    sx,
+    sy + height * 0.149
+    );
+
+
+  /*
+     GLOBAL MAXIMUM
+  */
+
+  float mx =
+    width * 0.765;
+
+
+  fill(
+    80,
+    210,
+    255
+    );
+
+
+  text(
+    "GLOBAL MAXIMUM",
+    mx,
+    sy + height * 0.080
+    );
+
+
+  fill(230);
+
+
+  text(
+    "x = " +
+    nf(
+      (float)globalMaxX,
+      1,
+      6
+      ),
+    mx,
+    sy + height * 0.103
+    );
+
+
+  text(
+    "log10(f) = " +
+    formatScientific(
+      globalMaxScore
+      ),
+    mx,
+    sy + height * 0.126
+    );
+
+
+  text(
+    "f(x) = " +
+    formatFunctionValue(
+      globalMaxScore
+      ),
+    mx,
+    sy + height * 0.149
+    );
+
+
+  /*
+     KNOWN RESULTS
+  */
+
+  fill(
+    170,
+    230,
+    170
+    );
+
+
+  textSize(
+    width * 0.0078
+    );
+
+
+  if (
+    currentMode ==
+    MODE_RECIPROCAL
+    ) {
+
+    /*
+       Correct result:
+
+          maximum:
+          x = e
+
+          f(e)
+          =
+          e^(1/e)
+          =
+          1.444667...
+    */
+
+    text(
+      "Known maximum: e^(1/e) at x=e",
+      sx,
+      sy + height * 0.177
+      );
+
+  } else {
+
+    if (
+      towerHeight == 1
+      ) {
+
+      text(
+        "T1(x)=x : minimum -> 0+, maximum = 10",
+        sx,
+        sy + height * 0.177
+        );
+
+    } else if (
+      towerHeight == 2
+      ) {
+
+      text(
+        "T2=x^x : minimum = e^(-1/e) at x=1/e",
+        sx,
+        sy + height * 0.177
+        );
+
+    } else {
+
+      text(
+        "Finite-height tower: GA estimates extrema",
+        sx,
+        sy + height * 0.177
+        );
+    }
+  }
+
+
+  /*
+     STATUS
+  */
+
+  if (finished) {
+
+    fill(
+      150,
+      240,
+      170
+      );
+
+
+    textSize(
+      width * 0.0085
+      );
+
+
+    text(
+      "1000 ITERATIONS COMPLETED",
+      sx,
+      sy + height * 0.203
+      );
+
+  } else {
+
+    fill(
+      255,
+      205,
+      90
+      );
+
+
+    textSize(
+      width * 0.0085
+      );
+
+
+    if (running) {
+
+      text(
+        "EVOLUTION SEARCHING...",
+        sx,
+        sy + height * 0.203
+        );
+
+    } else {
+
+      text(
+        "PAUSED",
+        sx,
+        sy + height * 0.203
+        );
+    }
+  }
+}
+
+
+/* =====================================================================
+   BUTTONS
+   ===================================================================== */
+
+void drawButtons() {
+
+  drawButton(
+    buttonStartX,
+    buttonY,
+    buttonW,
+    buttonH,
+    "NEW RUN"
+    );
+
+
+  drawButton(
+    buttonStartX +
+    buttonW +
+    buttonGap,
+    buttonY,
+    buttonW,
+    buttonH,
+    running
+    ? "PAUSE"
+    : "RUN"
+    );
+
+
+  drawButton(
+    buttonStartX +
+    2 *
+    (
+      buttonW +
+      buttonGap
+    ),
+    buttonY,
+    buttonW,
+    buttonH,
+    "STEP"
+    );
+
+
+  drawButton(
+    buttonStartX +
+    3 *
+    (
+      buttonW +
+      buttonGap
+    ),
+    buttonY,
+    buttonW,
+    buttonH,
+    "RESET"
+    );
+
+
+  /*
+     HELP TEXT
+  */
+
+  fill(
+    130,
+    180,
+    210
+    );
+
+
+  textSize(
+    width * 0.0075
+    );
+
+
+  if (
+    currentMode ==
+    MODE_TOWER
+    ) {
+
+    text(
+      "Tap POWER TOWER -> drag height slider",
+      width * 0.555,
+      buttonY + height * 0.018
+      );
+
+  } else {
+
+    text(
+      "GA searches minimum and maximum independently",
+      width * 0.555,
+      buttonY + height * 0.018
+      );
+  }
+}
+
+
+/* =====================================================================
+   BUTTON
+   ===================================================================== */
+
+void drawButton(
+  float x,
+  float y,
+  float w,
+  float h,
+  String label
+  ) {
+
+  fill(
+    25,
+    43,
+    64
+    );
+
+
+  stroke(
+    85,
+    125,
+    160
+    );
+
+
+  strokeWeight(2);
+
+
+  rect(
+    x,
+    y,
+    w,
+    h,
+    10
+    );
+
+
+  fill(240);
+
+
+  textAlign(
+    CENTER,
+    CENTER
+    );
+
+
+  textSize(
+    width * 0.009
+    );
+
+
+  text(
+    label,
+    x + w * 0.5,
+    y + h * 0.5
+    );
+
+
+  textAlign(
+    LEFT,
+    TOP
+    );
+}
+
+
+/* =====================================================================
+   MOUSE PRESSED / ANDROID TOUCH
+   ===================================================================== */
+
+void mousePressed() {
+
+  /*
+     ---------------------------------------------------------------
+     MODE: RECIPROCAL
+     ---------------------------------------------------------------
+  */
+
+  float modeY =
+    height * 0.090;
+
+
+  float modeH =
+    height * 0.045;
+
+
+  float modeW =
+    width * 0.155;
+
+
+  if (
+    inside(
+      mouseX,
+      mouseY,
+      width * 0.030,
+      modeY,
+      modeW,
+      modeH
+      )
+    ) {
+
+    currentMode =
+      MODE_RECIPROCAL;
+
+
+    resetGA();
+
+
+    return;
+  }
+
+
+  /*
+     ---------------------------------------------------------------
+     MODE: POWER TOWER
+     ---------------------------------------------------------------
+  */
+
+  if (
+    inside(
+      mouseX,
+      mouseY,
+      width * 0.195,
+      modeY,
+      modeW,
+      modeH
+      )
+    ) {
+
+    currentMode =
+      MODE_TOWER;
+
+
+    resetGA();
+
+
+    return;
+  }
+
+
+  /*
+     ---------------------------------------------------------------
+     HEIGHT SLIDER
+     ---------------------------------------------------------------
+  */
+
+  if (
+    currentMode ==
+    MODE_TOWER
+    &&
+    abs(
+      mouseY -
+      sliderY
+      )
+    <
+    height * 0.035
+    &&
+    mouseX >=
+    sliderLeft
+    &&
+    mouseX <=
+    sliderRight
+    ) {
+
+    draggingSlider =
+      true;
+
+
+    updateTowerHeightFromMouse();
+
+
+    return;
+  }
+
+
+  /*
+     ---------------------------------------------------------------
+     NEW RUN
+     ---------------------------------------------------------------
+  */
+
+  if (
+    inside(
+      mouseX,
+      mouseY,
+      buttonStartX,
+      buttonY,
+      buttonW,
+      buttonH
+      )
+    ) {
+
+    resetGA();
+
+
+    return;
+  }
+
+
+  /*
+     ---------------------------------------------------------------
+     RUN / PAUSE
+     ---------------------------------------------------------------
+  */
+
+  if (
+    inside(
+      mouseX,
+      mouseY,
+      buttonStartX +
+      buttonW +
+      buttonGap,
+      buttonY,
+      buttonW,
+      buttonH
+      )
+    ) {
+
+    if (!finished) {
+
+      running =
+        !running;
+
+
+      if (running) {
+
+        lastIterationTime =
+          millis();
+      }
+    }
+
+
+    return;
+  }
+
+
+  /*
+     ---------------------------------------------------------------
+     STEP
+     ---------------------------------------------------------------
+  */
+
+  if (
+    inside(
+      mouseX,
+      mouseY,
+      buttonStartX +
+      2 *
+      (
+        buttonW +
+        buttonGap
+      ),
+      buttonY,
+      buttonW,
+      buttonH
+      )
+    ) {
+
+    if (!finished) {
+
+      running =
+        false;
+
+
+      evolveOneIteration();
+    }
+
+
+    return;
+  }
+
+
+  /*
+     ---------------------------------------------------------------
+     RESET
+     ---------------------------------------------------------------
+  */
+
+  if (
+    inside(
+      mouseX,
+      mouseY,
+      buttonStartX +
+      3 *
+      (
+        buttonW +
+        buttonGap
+      ),
+      buttonY,
+      buttonW,
+      buttonH
+      )
+    ) {
+
+    resetGA();
+
+
+    return;
+  }
+}
+
+
+/* =====================================================================
+   MOUSE DRAGGED
+   ===================================================================== */
+
+void mouseDragged() {
+
+  if (
+    draggingSlider
+    &&
+    currentMode ==
+    MODE_TOWER
+    ) {
+
+    updateTowerHeightFromMouse();
+  }
+}
+
+
+/* =====================================================================
+   MOUSE RELEASED
+   ===================================================================== */
+
+void mouseReleased() {
+
+  draggingSlider =
+    false;
+}
+
+
+/* =====================================================================
+   UPDATE TOWER HEIGHT
+   ===================================================================== */
+
+void updateTowerHeightFromMouse() {
+
+  float normalized =
+    map(
+      mouseX,
+      sliderLeft,
+      sliderRight,
+      0,
+      1
+      );
+
+
+  normalized =
+    constrain(
+      normalized,
+      0,
+      1
+      );
+
+
+  /*
+     LOGARITHMIC HEIGHT SCALE:
+
+       left  ~= 1
+       middle ~= hundreds
+       right ~= 100000
+
+  */
+
+  double heightValue =
+    Math.exp(
+      normalized *
+      Math.log(
+        MAX_HEIGHT
+        )
+      );
+
+
+  int newHeight =
+    (int)
+    Math.round(
+      heightValue
+      );
+
+
+  newHeight =
+    constrain(
+      newHeight,
+      MIN_HEIGHT,
+      MAX_HEIGHT
+      );
+
+
+  if (
+    newHeight !=
+    towerHeight
+    ) {
+
+    towerHeight =
+      newHeight;
+
+
+    resetGA();
+  }
+}
+
+
+/* =====================================================================
+   HIT TEST
+   ===================================================================== */
+
+boolean inside(
+  float px,
+  float py,
+  float x,
+  float y,
+  float w,
+  float h
+  ) {
+
+  return
+    px >= x &&
+    px <= x + w &&
+    py >= y &&
+    py <= y + h;
+}
+
+
+/* =====================================================================
+   FORMAT LOG VALUE
+   ===================================================================== */
+
+String formatScientific(
+  double value
+  ) {
+
+  if (
+    Double.isInfinite(value)
+    ) {
+
+    return
+      value > 0
+      ? "+INF"
+      : "-INF";
+  }
+
+
+  if (
+    Math.abs(value)
+    < 1e-6
+    ) {
+
+    return
+      nf(
+        (float)value,
+        1,
+        6
+        );
+  }
+
+
+  return
+    nf(
+      (float)value,
+      1,
+      4
+      );
+}
+
+
+/* =====================================================================
+   FORMAT FUNCTION VALUE
+   ===================================================================== */
+
+/*
+   Converts:
+
+       log10(f)
+
+   into a readable representation.
+
+   Examples:
+
+       0.3010 -> 2.000000
+
+       25     -> 10^25
+
+       -20    -> 10^-20
+*/
+
+String formatFunctionValue(
+  double logValue
+  ) {
+
+  if (
+    Double.isNaN(logValue)
+    ) {
+
+    return "NaN";
+  }
+
+
+  if (
+    logValue >
+    LOG_LIMIT - 1
+    ) {
+
+    return
+      "10^" +
+      nf(
+        (float)logValue,
+        1,
+        2
+        );
+  }
+
+
+  if (
+    logValue >
+    -6.0
+    &&
+    logValue <
+    6.0
+    ) {
+
+    double actual =
+      Math.pow(
+        10.0,
+        logValue
+        );
+
+
+    return
+      nf(
+        (float)actual,
+        1,
+        6
+        );
+  }
+
+
+  return
+    "10^" +
+    nf(
+      (float)logValue,
+      1,
+      3
+      );
+}
+
+
+/* =====================================================================
+   FORMAT AXIS NUMBER
+   ===================================================================== */
+
+String formatAxisNumber(
+  double value
+  ) {
+
+  if (
+    Math.abs(value)
+    < 0.001
+    ) {
+
+    return
+      nf(
+        (float)value,
+        1,
+        4
+        );
+  }
+
+
+  if (
+    Math.abs(value)
+    < 1000
+    ) {
+
+    return
+      nf(
+        (float)value,
+        1,
+        2
+        );
+  }
+
+
+  return
+    nf(
+      (float)value,
+      1,
+      2
+      );
+}
